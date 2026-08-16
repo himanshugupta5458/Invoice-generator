@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import { BuyerSelect } from "@/components/invoice/BuyerSelect";
+import { DownloadPdfButton } from "@/components/invoice/DownloadPdfButton";
+import type { InvoicePdfProps } from "@/components/invoice/InvoicePdf";
 import { EMPTY_ITEM, ItemsTable } from "@/components/invoice/ItemsTable";
 import { InvoicePreview } from "@/components/invoice/InvoicePreview";
 import { ShipToSection } from "@/components/invoice/ShipToSection";
@@ -149,6 +151,45 @@ export function InvoiceForm() {
       ),
     [profile, buyerValues, items],
   );
+
+  // Built once and handed to both the preview and the PDF, so what is on screen
+  // and what is downloaded cannot describe different invoices. Null until a
+  // profile is chosen, which is what gates the Download button.
+  const pdfProps = useMemo<InvoicePdfProps | null>(() => {
+    if (!profile) return null;
+    return {
+      business: profile,
+      buyer: toBuyer(buyerValues ?? BLANK_BUYER),
+      shipTo: sameAsBilling
+        ? undefined
+        : {
+            name: shipToValues?.name ?? "",
+            address: shipToValues?.address ?? "",
+            state: shipToValues?.state ?? "",
+            stateCode: shipToValues?.stateCode ?? "",
+            gstin: shipToValues?.gstin || undefined,
+          },
+      invoiceNumber,
+      date,
+      computed,
+      termsAndConditions: terms || undefined,
+      notes: notes || undefined,
+      accentColor: profile.accentColor,
+      // Nothing is saved yet, so an invoice downloaded from the builder is
+      // always unpaid; /invoices re-downloads with the stored status.
+      status: "unpaid",
+    };
+  }, [
+    profile,
+    buyerValues,
+    sameAsBilling,
+    shipToValues,
+    invoiceNumber,
+    date,
+    computed,
+    terms,
+    notes,
+  ]);
 
   function handleBuyerSelect(buyer: SavedBuyer | null) {
     if (!buyer) {
@@ -519,35 +560,18 @@ export function InvoiceForm() {
               >
                 {showPreview ? "Hide preview" : "Preview"}
               </Button>
+              {/* Downloads what is on screen — saving first is not required. */}
+              {pdfProps && (
+                <DownloadPdfButton invoice={pdfProps} disabled={disabled} />
+              )}
             </div>
           </div>
         </aside>
       </div>
 
-      {showPreview && profile && (
+      {showPreview && pdfProps && (
         <section aria-label="Invoice preview" className="pt-2">
-          <InvoicePreview
-            business={profile}
-            buyer={toBuyer(buyerValues ?? BLANK_BUYER)}
-            shipTo={
-              sameAsBilling
-                ? undefined
-                : {
-                    name: shipToValues?.name ?? "",
-                    address: shipToValues?.address ?? "",
-                    state: shipToValues?.state ?? "",
-                    stateCode: shipToValues?.stateCode ?? "",
-                    gstin: shipToValues?.gstin || undefined,
-                  }
-            }
-            invoiceNumber={invoiceNumber}
-            date={date}
-            computed={computed}
-            termsAndConditions={terms || undefined}
-            notes={notes || undefined}
-            accentColor={profile.accentColor}
-            status="unpaid"
-          />
+          <InvoicePreview {...pdfProps} />
         </section>
       )}
     </form>
