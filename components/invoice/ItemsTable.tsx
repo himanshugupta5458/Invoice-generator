@@ -235,6 +235,10 @@ export function ItemsTable({
         <CsvImportButton
           onImport={handleCsvImport}
           disabled={disabled}
+          // Takes the rest of the row so the hint and the import summary get the
+          // full width instead of being squeezed into a shrink-to-fit column;
+          // on a phone it wraps onto its own full-width line.
+          className="min-w-0 flex-1"
           hint={
             <>
               Columns: <code className="font-mono">{CSV_TEMPLATE_HEADER}</code>.

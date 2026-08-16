@@ -3,6 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/components/ui/cn";
 import { parseInvoiceItemsCsv, type CsvRowError } from "@/lib/csv";
 import type { InvoiceItemFormValues } from "@/lib/validation";
 
@@ -30,6 +31,7 @@ export interface CsvImportButtonProps {
   /** Static help shown under the button, above any import summary. */
   hint?: ReactNode;
   disabled?: boolean;
+  className?: string;
 }
 
 interface Summary {
@@ -44,6 +46,7 @@ export function CsvImportButton({
   onImport,
   hint,
   disabled,
+  className,
 }: CsvImportButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -99,7 +102,7 @@ export function CsvImportButton({
   const hidden = (summary?.errors.length ?? 0) - listed.length;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className={cn("flex flex-col gap-2", className)}>
       <input
         ref={inputRef}
         type="file"
@@ -117,6 +120,9 @@ export function CsvImportButton({
       />
 
       <Button
+        // self-start so the button stays its natural size while the hint and
+        // summary below it stretch to the column's full width.
+        className="self-start"
         disabled={disabled || busy}
         aria-busy={busy}
         onClick={() => inputRef.current?.click()}

@@ -15,7 +15,7 @@ import {
   type BusinessProfileFormValues,
 } from "@/lib/validation";
 
-/** Starting point for a new profile's terms; editable per invoice later (§4). */
+/** Starting point for a new profile's terms. T&C are seller-only (§4). */
 const DEFAULT_TERMS = `1. Goods once sold will not be taken back or exchanged.
 2. Payment is due within 15 days of the invoice date.
 3. Interest at 18% per annum is chargeable on overdue amounts.
@@ -315,7 +315,7 @@ export function BusinessProfileForm({
                 type="file"
                 accept="image/png,image/jpeg,image/svg+xml"
                 onChange={(event) => void handleLogo(event.target.files?.[0])}
-                className="text-sm text-stone-600 file:mr-3 file:rounded-md file:border file:border-stone-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-stone-100"
+                className="rounded-md text-sm text-stone-600 file:mr-3 file:rounded-md file:border file:border-stone-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
               />
               {logoDataUrl && (
                 <Button
@@ -336,7 +336,7 @@ export function BusinessProfileForm({
       <Field
         label="Default terms & conditions"
         error={errors.termsAndConditions?.message}
-        hint="Pre-filled on every invoice from this profile, and editable per invoice."
+        hint="Used on every invoice from this profile. This is the only place it can be edited."
       >
         {(ids) => <TextArea {...ids} rows={5} {...register("termsAndConditions")} />}
       </Field>

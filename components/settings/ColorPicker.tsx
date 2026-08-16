@@ -1,6 +1,11 @@
 "use client";
 
-import { ACCENT_PRESETS, normalizeHex, readableTextOn } from "@/lib/color";
+import {
+  ACCENT_PRESETS,
+  contrastRatio,
+  normalizeHex,
+  readableTextOn,
+} from "@/lib/color";
 import { cn } from "@/components/ui/cn";
 import { TextInput } from "@/components/ui/Field";
 
@@ -27,6 +32,13 @@ export function ColorPicker({
   const normalized = normalizeHex(value);
   const swatchValue = normalized ?? "#7a5230";
   const textColor = readableTextOn(swatchValue);
+
+  // readableTextOn() already picks whichever of white/dark contrasts better, so
+  // this is the best the band can do. Every preset clears 4.5:1, but a mid-tone
+  // custom colour (a mid grey, a mid green) cannot with any text colour — worth
+  // saying so before it reaches a printed invoice (§4).
+  const bandContrast = contrastRatio(swatchValue, textColor);
+  const lowContrast = bandContrast < 4.5;
 
   return (
     <div className="flex flex-col gap-3">
@@ -80,6 +92,14 @@ export function ColorPicker({
       >
         Invoice heading &amp; totals band
       </div>
+
+      {lowContrast && (
+        <p className="text-xs text-amber-700">
+          This colour gives {bandContrast.toFixed(1)}:1 contrast against the band
+          text — below the 4.5:1 that reads reliably in print. A darker or
+          lighter shade of the same hue will look sharper.
+        </p>
+      )}
     </div>
   );
 }

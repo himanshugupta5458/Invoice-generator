@@ -30,7 +30,7 @@ export interface BusinessProfile {
   invoicePrefix: string; // e.g. "SC/2026/"
   nextInvoiceNumber: number; // e.g. 1
   accentColor: string; // hex, e.g. "#7a5230" — drives invoice theming
-  termsAndConditions?: string; // default T&C text, editable per invoice
+  termsAndConditions?: string; // T&C used by every invoice; editable only in /settings
 }
 
 export interface Buyer {

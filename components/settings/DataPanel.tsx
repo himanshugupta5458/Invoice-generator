@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { triggerDownload } from "@/lib/pdf";
 import { useHydratedStore, useInvoiceStore } from "@/lib/store";
 
 /**
@@ -32,12 +33,13 @@ export function DataPanel() {
     const blob = new Blob([JSON.stringify(bundle, null, 2)], {
       type: "application/json",
     });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `invoicegen-backup-${bundle.exportedAt.slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    // Shared with the PDF download rather than hand-rolled here: that helper
+    // appends the link before clicking it and defers revoking the object URL,
+    // without which Safari cancels the download mid-flight.
+    triggerDownload(
+      blob,
+      `invoicegen-backup-${bundle.exportedAt.slice(0, 10)}.json`,
+    );
 
     setNotice("Backup downloaded.");
   }
