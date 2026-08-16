@@ -9,6 +9,7 @@ import {
   invoiceFormSchema,
   toBuyer,
   toInvoice,
+  toInvoiceItems,
   toProfile,
   toSavedBuyer,
   type BusinessProfileFormValues,
@@ -216,6 +217,11 @@ describe("form values to stored records", () => {
     const buyer = toBuyer(buyerValues({ gstin: "", phone: "  " }));
     expect(buyer.gstin).toBeUndefined();
     expect(buyer.phone).toBeUndefined();
+
+    const [item] = toInvoiceItems([
+      { description: "Cotton kurta", hsn: "  ", quantity: 1, rate: 500, gstRate: 5 },
+    ]);
+    expect(item.hsn).toBeUndefined();
   });
 
   it("uppercases a buyer GSTIN and keeps the id on a saved buyer", () => {
@@ -249,7 +255,6 @@ function invoiceValues(
         gstRate: 18,
       },
     ],
-    termsAndConditions: "Payment due within 15 days.",
     notes: "",
     ...overrides,
   };
@@ -286,6 +291,31 @@ describe("invoiceFormSchema", () => {
     expect(paths).toContain("items.0.quantity");
     expect(paths).toContain("items.0.rate");
     expect(paths).toContain("items.0.gstRate");
+    // HSN/SAC is optional (§4) — a blank one is not an error.
+    expect(paths).not.toContain("items.0.hsn");
+  });
+
+  it("accepts an item with a blank or missing HSN/SAC", () => {
+    expect(
+      invoiceFormSchema.safeParse(
+        invoiceValues({
+          items: [
+            { description: "Cotton kurta", hsn: "", quantity: 1, rate: 500, gstRate: 5 },
+          ],
+        }),
+      ).success,
+    ).toBe(true);
+
+    // A CSV row with no hsn column at all leaves the key undefined.
+    expect(
+      invoiceFormSchema.safeParse(
+        invoiceValues({
+          items: [
+            { description: "Cotton kurta", quantity: 1, rate: 500, gstRate: 5 },
+          ],
+        }),
+      ).success,
+    ).toBe(true);
   });
 
   it("ignores empty Ship To fields while 'same as billing' is on", () => {
@@ -329,12 +359,27 @@ describe("invoiceFormSchema", () => {
 describe("toInvoice — the snapshot rule (§5)", () => {
   const profile = toProfile(profileValues(), "profile-1");
 
-  it("defaults to unpaid and freezes the accent colour and terms", () => {
+  it("defaults to paid and freezes the accent colour and terms", () => {
     const invoice = toInvoice(invoiceValues(), profile, "invoice-1");
-    expect(invoice.status).toBe("unpaid");
+    expect(invoice.status).toBe("paid");
     expect(invoice.accentColor).toBe(profile.accentColor);
     expect(invoice.termsAndConditions).toBe("Payment due within 15 days.");
     expect(invoice.businessProfileId).toBe("profile-1");
+  });
+
+  it("takes terms from the profile, not the form — they are seller-only (§4)", () => {
+    const other = toProfile(
+      profileValues({ termsAndConditions: "Goods once sold are not returnable." }),
+      "profile-2",
+    );
+    expect(toInvoice(invoiceValues(), other, "i1").termsAndConditions).toBe(
+      "Goods once sold are not returnable.",
+    );
+
+    // A profile with no default leaves the invoice without terms rather than
+    // storing an empty string.
+    const bare = toProfile(profileValues({ termsAndConditions: "" }), "profile-3");
+    expect(toInvoice(invoiceValues(), bare, "i2").termsAndConditions).toBeUndefined();
   });
 
   it("keeps a deep copy of the business, so later profile edits cannot change it", () => {

@@ -14,7 +14,7 @@ A small-business owner should be able to:
 1. Save one or more **business profiles** once (name, address, GSTIN, bank details).
 2. Start a new invoice, **pick a business profile from a dropdown**.
 3. Enter the **buyer (Bill To)**, optionally a separate **Ship To**, and a list of
-   **items** (description, HSN, quantity, per-unit price, GST rate).
+   **items** (description, optional HSN, quantity, per-unit price, GST rate).
 4. See **totals calculated live** (taxable value, CGST/SGST or IGST, round-off, grand total, amount in words).
 5. **Download a clean PDF** of the invoice.
 6. Track whether an invoice is **paid or unpaid**.
@@ -49,6 +49,7 @@ invoices/page.tsx # Saved invoice history (list + re-download + paid/unpaid togg
 components/
 invoice/InvoiceForm.tsx
 invoice/ItemsTable.tsx
+invoice/CsvImportButton.tsx     # bulk-add items from a CSV (client-side parse)
 invoice/BuyerSelect.tsx # searchable combobox of saved buyers + add-new
 invoice/ShipToSection.tsx # "same as billing" toggle + Ship To fields
 invoice/InvoicePreview.tsx # on-screen HTML preview (accent-themed)
@@ -65,9 +66,11 @@ color.ts # accent presets + luminance/contrast helper
 repository.ts # Repository interface + LocalStorageRepository (§7)
 store.ts # Zustand store wired to the repository
 validation.ts # Zod schemas incl. GSTIN check
+csv.ts # CSV -> invoice items parser (§4) — pure, fully tested
 tests/
 gst.test.ts
 format.test.ts
+csv.test.ts
 
 
 Keep `lib/gst.ts` and `lib/format.ts` **pure** (no React, no storage) so they are trivially testable.
@@ -110,10 +113,23 @@ Keep `lib/gst.ts` and `lib/format.ts` **pure** (no React, no storage) so they ar
 - Invoice number auto-fills from the profile's prefix + next number; editable.
 - Date defaults to today; editable.
 - **Items table** with add/remove rows. Each row: description, HSN/SAC, quantity, rate (pre-tax), GST rate (%). Provide a GST-rate select with the standard slabs: 0, 3, 5, 12, 18, 28.
+  **HSN/SAC is optional** — a blank code must never block a save. It is shown in the items
+  table, the preview, and the PDF when present, and rendered as "—" when it is not.
+- **CSV bulk upload** — a button on the items table takes a `.csv` whose columns match
+  `InvoiceItem`: `description, hsn, quantity, rate, gstRate`. Parsing is **pure client-side**
+  (`lib/csv.ts`) — no upload, no backend, no new dependency. Header matching is
+  case/punctuation-insensitive and accepts the obvious aliases (`qty`, `price`, `gst %`,
+  `hsn/sac`); column order does not matter and `hsn` may be absent entirely.
+  Every row is validated against the same `invoiceItemFormSchema` the table uses; **valid rows
+  are appended and invalid rows are reported**, never silently dropped. A malformed or
+  non-CSV file produces a plain error message, never a crash.
 - Totals recompute live on every change (§6).
-- **Terms & Conditions**: pre-filled from the business profile's default, editable per invoice.
+- **Terms & Conditions**: seller-only. The invoice builder has **no** T&C field. Every invoice
+  uses its business profile's default `termsAndConditions` verbatim, frozen into the snapshot
+  at save time. The text is edited in one place only: the business profile on `/settings`.
 - Buttons: **Preview**, **Download PDF**, **Save invoice** (persists to history, defaults
-  status to `unpaid`, and increments the profile's next number).
+  status to `paid`, and increments the profile's next number). The paid/unpaid flag itself
+  stays — only the default at save time is `paid`; anything unpaid is switched from `/invoices`.
 
 **History:**
 - `/invoices` lists saved invoices (number, date, buyer, grand total, **status**) with a
@@ -139,7 +155,7 @@ export interface BusinessProfile {
   invoicePrefix: string;                    // e.g. "SC/2026/"
   nextInvoiceNumber: number;                // e.g. 1
   accentColor: string;                      // hex, e.g. "#7a5230" — drives invoice theming
-  termsAndConditions?: string;               // default T&C text, editable per invoice
+  termsAndConditions?: string;               // default T&C text — editable only in /settings
 }
 export interface Buyer {
   name: string; address: string;
@@ -159,7 +175,8 @@ export interface ShipTo {
   gstin?: string;
 }
 export interface InvoiceItem {
-  description: string; hsn: string;
+  description: string;
+  hsn?: string;                             // optional — never required to save
   quantity: number; rate: number;           // rate is PER-UNIT, pre-tax
   gstRate: number;                          // total GST %, e.g. 12
 }
@@ -174,8 +191,8 @@ export interface Invoice {
   shipTo?: ShipTo;                          // frozen copy; omitted if "same as billing"
   accentColor: string;                      // frozen from the profile at issue time
   items: InvoiceItem[];
-  termsAndConditions?: string;              // frozen text used on this invoice
-  status: InvoiceStatus;                    // defaults to "unpaid" on save
+  termsAndConditions?: string;              // frozen copy of the profile's T&C at issue time
+  status: InvoiceStatus;                    // defaults to "paid" on save
   notes?: string;
 }
 ```
@@ -330,7 +347,7 @@ uses. Leave this marker at the repository boundary:
    **default terms & conditions field**; Buyers CRUD; Export/Import JSON.
 5. `/` — invoice builder: profile dropdown, **saved-buyer combobox + add-new**,
    **Ship To section with "same as billing" toggle**, items table, live totals,
-   **terms & conditions field**, accent-themed HTML preview.
+   accent-themed HTML preview. (No T&C field — that lives on the profile.)
 6. `components/invoice/InvoicePdf.tsx` (accent-themed, Noto Sans, bank details, T&C,
    paid/unpaid badge) + download.
 7. `/invoices` — history list + re-download from snapshots + **paid/unpaid toggle**.
@@ -373,12 +390,16 @@ uses. Leave this marker at the repository boundary:
       the CGST/SGST vs IGST calculation.
 - [ ] Items table adds/removes rows; totals update live and are correct for BOTH
       intra-state (CGST+SGST) and inter-state (IGST) cases.
+- [ ] An item with no HSN/SAC saves without complaint and renders cleanly everywhere.
+- [ ] A CSV of items uploads from the items table, appends every valid row, and lists the
+      rows it rejected with a reason; a malformed file is reported, not crashed on.
 - [ ] Round-off and amount-in-words are correct.
-- [ ] Terms & conditions default from the business profile and are editable per invoice.
+- [ ] Terms & conditions come from the business profile only, are editable nowhere but
+      `/settings`, and are frozen into each invoice's snapshot at save time.
 - [ ] PDF downloads, is vector text in Noto Sans, shows the ₹ symbol correctly, includes
       bank details and terms & conditions, and matches the on-screen preview, with the
       correct tax columns for the branch and the correct accent colour.
-- [ ] Invoice saves to history as a snapshot with status defaulting to "unpaid", increments
+- [ ] Invoice saves to history as a snapshot with status defaulting to "paid", increments
       the profile's next number, is re-downloadable, and does NOT change when the source
       profile/buyer is later edited.
 - [ ] Invoice status (Paid/Unpaid) can be toggled from the history page.

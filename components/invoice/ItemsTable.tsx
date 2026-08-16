@@ -3,13 +3,18 @@
 import type { FieldErrors, UseFormRegister } from "react-hook-form";
 import { useFieldArray, type Control } from "react-hook-form";
 
+import { CsvImportButton } from "@/components/invoice/CsvImportButton";
 import { Button } from "@/components/ui/Button";
 import { Select, TextInput } from "@/components/ui/Field";
 import { cn } from "@/components/ui/cn";
+import { CSV_TEMPLATE_HEADER } from "@/lib/csv";
 import { formatINR } from "@/lib/format";
 import type { ComputedLine } from "@/lib/gst";
 import { GST_SLABS } from "@/lib/types";
-import type { InvoiceFormValues } from "@/lib/validation";
+import type {
+  InvoiceFormValues,
+  InvoiceItemFormValues,
+} from "@/lib/validation";
 
 export const EMPTY_ITEM = {
   description: "",
@@ -40,6 +45,27 @@ export function ItemsTable({
   // `errors` is an array of per-row errors, plus a root error for the array itself.
   const rowErrors = Array.isArray(errors) ? errors : undefined;
   const listError = errors?.root?.message ?? errors?.message;
+
+  /**
+   * Append imported rows (§4).
+   *
+   * The table always opens with one blank row. Appending behind it would leave
+   * that blank row in place to fail validation on save, so an untouched blank
+   * first row is dropped once real rows arrive. A row the user has typed into is
+   * never discarded.
+   */
+  function handleCsvImport(imported: InvoiceItemFormValues[]) {
+    const first = lines[0];
+    const dropBlankFirstRow =
+      fields.length === 1 &&
+      Boolean(first) &&
+      first.description.trim() === "" &&
+      !first.hsn?.trim() &&
+      first.rate === 0;
+
+    append(imported);
+    if (dropBlankFirstRow) remove(0);
+  }
 
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
@@ -201,10 +227,21 @@ export function ItemsTable({
         <p className={cn("mt-3 text-xs text-red-700")}>{listError}</p>
       )}
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap items-start gap-3">
         <Button disabled={disabled} onClick={() => append({ ...EMPTY_ITEM })}>
           Add row
         </Button>
+
+        <CsvImportButton
+          onImport={handleCsvImport}
+          disabled={disabled}
+          hint={
+            <>
+              Columns: <code className="font-mono">{CSV_TEMPLATE_HEADER}</code>.
+              HSN is optional.
+            </>
+          }
+        />
       </div>
     </section>
   );

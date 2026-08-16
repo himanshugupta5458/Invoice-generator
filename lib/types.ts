@@ -65,7 +65,8 @@ export interface ShipTo {
 
 export interface InvoiceItem {
   description: string;
-  hsn: string;
+  /** Optional (§4) — a blank HSN/SAC never blocks a save. */
+  hsn?: string;
   quantity: number;
   rate: number; // rate is PER-UNIT, pre-tax
   gstRate: number; // total GST %, e.g. 12
@@ -84,7 +85,7 @@ export interface Invoice {
   accentColor: string; // frozen from the profile at issue time
   items: InvoiceItem[];
   termsAndConditions?: string; // frozen text used on this invoice
-  status: InvoiceStatus; // defaults to "unpaid" on save
+  status: InvoiceStatus; // defaults to "paid" on save; toggled from /invoices
   notes?: string;
 }
 

@@ -244,8 +244,9 @@ export function InvoicePreview({
                 <tr key={index} className="border-b border-stone-100">
                   <td className="px-2 py-2 text-stone-500">{index + 1}</td>
                   <td className="px-2 py-2">{line.description || "—"}</td>
+                  {/* HSN/SAC is optional — the PDF shows "—" too (§4). */}
                   <td className="px-2 py-2 font-mono text-stone-600">
-                    {line.hsn}
+                    {line.hsn || "—"}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums">
                     {line.quantity}

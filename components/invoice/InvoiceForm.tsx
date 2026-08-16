@@ -57,7 +57,6 @@ function blankInvoice(): InvoiceFormValues {
     sameAsBilling: true,
     shipTo: { ...BLANK_SHIP_TO },
     items: [{ ...EMPTY_ITEM }],
-    termsAndConditions: "",
     notes: "",
   };
 }
@@ -119,7 +118,6 @@ export function InvoiceForm() {
   const items = useWatch({ control, name: "items" });
   const invoiceNumber = useWatch({ control, name: "invoiceNumber" });
   const date = useWatch({ control, name: "date" });
-  const terms = useWatch({ control, name: "termsAndConditions" });
   const notes = useWatch({ control, name: "notes" });
 
   const profile = profiles.find((entry) => entry.id === businessProfileId);
@@ -129,15 +127,15 @@ export function InvoiceForm() {
     setValue("date", today());
   }, [setValue]);
 
-  // Picking a profile fills the invoice number from its prefix + running
-  // number, and pre-fills the terms from that profile's default (§4).
+  // Picking a profile fills the invoice number from its prefix + running number.
+  // Terms are not touched here — they are seller-only and come straight from the
+  // profile at preview and save time (§4).
   useEffect(() => {
     if (!profile) return;
     setValue(
       "invoiceNumber",
       `${profile.invoicePrefix}${profile.nextInvoiceNumber}`,
     );
-    setValue("termsAndConditions", profile.termsAndConditions ?? "");
   }, [profile, setValue]);
 
   // Totals recompute on every change (§4). The tax branch comes from the
@@ -172,12 +170,13 @@ export function InvoiceForm() {
       invoiceNumber,
       date,
       computed,
-      termsAndConditions: terms || undefined,
+      // Straight from the profile — the same value toInvoice() will freeze in.
+      termsAndConditions: profile.termsAndConditions || undefined,
       notes: notes || undefined,
       accentColor: profile.accentColor,
-      // Nothing is saved yet, so an invoice downloaded from the builder is
-      // always unpaid; /invoices re-downloads with the stored status.
-      status: "unpaid",
+      // Nothing is saved yet, so the badge shows the status this invoice would
+      // get on save (§4); /invoices re-downloads with the stored status.
+      status: "paid",
     };
   }, [
     profile,
@@ -187,7 +186,6 @@ export function InvoiceForm() {
     invoiceNumber,
     date,
     computed,
-    terms,
     notes,
   ]);
 
@@ -224,14 +222,13 @@ export function InvoiceForm() {
     const nextNumber = profile.nextInvoiceNumber + 1;
     await saveProfile({ ...profile, nextInvoiceNumber: nextNumber });
 
-    setSavedNotice(`Invoice ${values.invoiceNumber} saved as unpaid.`);
+    setSavedNotice(`Invoice ${values.invoiceNumber} saved as paid.`);
     setShowPreview(false);
     reset({
       ...blankInvoice(),
       businessProfileId: profile.id,
       date: today(),
       invoiceNumber: `${profile.invoicePrefix}${nextNumber}`,
-      termsAndConditions: profile.termsAndConditions ?? "",
     });
   }
 
@@ -461,21 +458,20 @@ export function InvoiceForm() {
           <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
             <div className="grid gap-4">
               <Field
-                label="Terms & conditions"
-                error={errors.termsAndConditions?.message}
-                hint="Pre-filled from the business profile; edit for this invoice only."
+                label="Notes"
+                error={errors.notes?.message}
+                hint={
+                  // T&C are seller-only (§4) — there is no field for them here,
+                  // so say where they do come from rather than leave a gap.
+                  <>
+                    Terms &amp; conditions come from the business profile.{" "}
+                    <Link href="/settings" className="underline">
+                      Edit them in Settings
+                    </Link>
+                    .
+                  </>
+                }
               >
-                {(ids) => (
-                  <TextArea
-                    {...ids}
-                    rows={4}
-                    disabled={locked}
-                    {...register("termsAndConditions")}
-                  />
-                )}
-              </Field>
-
-              <Field label="Notes" error={errors.notes?.message}>
                 {(ids) => (
                   <TextArea
                     {...ids}

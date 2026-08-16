@@ -122,7 +122,9 @@ export type ShipToFormValues = z.infer<typeof shipToFormSchema>;
 
 export const invoiceItemFormSchema = z.object({
   description: z.string().trim().min(1, "Describe the item"),
-  hsn: z.string().trim(),
+  // Optional (§4). `.optional()` rather than a plain string so a CSV row that
+  // omits the column entirely is as valid as an empty input.
+  hsn: z.string().trim().optional(),
   quantity: z
     .number({ error: "Enter a quantity" })
     .positive("Quantity must be more than 0"),
@@ -149,7 +151,9 @@ export const invoiceFormSchema = z
     sameAsBilling: z.boolean(),
     shipTo: shipToFormSchema,
     items: z.array(invoiceItemFormSchema).min(1, "Add at least one item"),
-    termsAndConditions: z.string(),
+    // No termsAndConditions here on purpose: T&C are seller-only (§4). Every
+    // invoice takes its business profile's default, so the builder has no field
+    // to validate.
     notes: z.string(),
   })
   .superRefine((values, ctx) => {
@@ -236,7 +240,7 @@ export const shipToSchema = z.object({
 
 export const invoiceItemSchema = z.object({
   description: z.string(),
-  hsn: z.string(),
+  hsn: z.string().optional(),
   quantity: z.number(),
   rate: z.number(),
   gstRate: z.number(),
@@ -341,7 +345,7 @@ export function toInvoiceItems(
 ): InvoiceItem[] {
   return values.map((item) => ({
     description: item.description,
-    hsn: item.hsn,
+    hsn: blankToUndefined(item.hsn ?? ""),
     quantity: item.quantity,
     rate: item.rate,
     gstRate: item.gstRate,
@@ -355,6 +359,10 @@ export function toInvoiceItems(
  * as they stand right now. Editing the source profile or saved buyer afterwards
  * must never change this invoice, which is why nothing here is stored as a
  * reference — `businessProfileId` is kept only for grouping in history.
+ *
+ * Terms come from the profile rather than the form: they are seller-only (§4),
+ * editable in /settings and nowhere else, but still frozen here at issue time so
+ * a later edit to the profile leaves this invoice's text alone.
  */
 export function toInvoice(
   values: InvoiceFormValues,
@@ -371,8 +379,10 @@ export function toInvoice(
     shipTo: values.sameAsBilling ? undefined : toShipTo(values.shipTo),
     accentColor: profile.accentColor,
     items: toInvoiceItems(values.items),
-    termsAndConditions: blankToUndefined(values.termsAndConditions),
-    status: "unpaid",
+    termsAndConditions: blankToUndefined(profile.termsAndConditions ?? ""),
+    // Most invoices are raised against money already collected, so a new one is
+    // paid unless the user says otherwise from /invoices (§4).
+    status: "paid",
     notes: blankToUndefined(values.notes),
   };
 }
