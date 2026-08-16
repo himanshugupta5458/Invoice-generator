@@ -1,10 +1,6 @@
-import Link from "next/link";
+import { InvoiceForm } from "@/components/invoice/InvoiceForm";
 
-/**
- * Invoice builder (§4). The full builder — profile dropdown, buyer combobox,
- * Ship To, items table, live totals, accent-themed preview — arrives in
- * milestone 5. Until then this page points at the setup that must happen first.
- */
+/** Invoice builder — the home screen (§9). */
 export default function HomePage() {
   return (
     <div className="flex flex-col gap-6">
@@ -13,26 +9,12 @@ export default function HomePage() {
           New invoice
         </h1>
         <p className="mt-1 text-sm text-stone-500">
-          Select a business profile, add your buyer and items, and download a
-          GST-compliant PDF.
+          Pick a business profile, add the buyer and items, and watch the totals
+          update as you type.
         </p>
       </div>
 
-      <div className="rounded-lg border border-dashed border-stone-300 bg-white px-4 py-10 text-center">
-        <p className="text-sm text-stone-600">
-          The invoice builder is not wired up yet.
-        </p>
-        <p className="mt-1 text-sm text-stone-500">
-          Start by adding a business profile in{" "}
-          <Link
-            href="/settings"
-            className="font-medium text-stone-900 underline underline-offset-2"
-          >
-            Settings
-          </Link>
-          .
-        </p>
-      </div>
+      <InvoiceForm />
     </div>
   );
 }

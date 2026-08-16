@@ -17,6 +17,7 @@ import { isValidGstin } from "./format";
 import type {
   BusinessProfile,
   Buyer,
+  Invoice,
   InvoiceItem,
   SavedBuyer,
   ShipTo,
@@ -107,6 +108,76 @@ export const buyerFormSchema = z.object({
 });
 
 export type BuyerFormValues = z.infer<typeof buyerFormSchema>;
+
+/** Ship To is display-only, so its fields are only required once it is in use. */
+export const shipToFormSchema = z.object({
+  name: z.string().trim(),
+  address: z.string().trim(),
+  state: z.string().trim(),
+  stateCode: z.string().trim(),
+  gstin: optionalGstinSchema,
+});
+
+export type ShipToFormValues = z.infer<typeof shipToFormSchema>;
+
+export const invoiceItemFormSchema = z.object({
+  description: z.string().trim().min(1, "Describe the item"),
+  hsn: z.string().trim(),
+  quantity: z
+    .number({ error: "Enter a quantity" })
+    .positive("Quantity must be more than 0"),
+  rate: z.number({ error: "Enter a rate" }).min(0, "Rate cannot be negative"),
+  gstRate: z
+    .number({ error: "Choose a GST rate" })
+    .refine(
+      (rate) => (GST_SLABS as readonly number[]).includes(rate),
+      `GST rate must be one of ${GST_SLABS.join(", ")}%`,
+    ),
+});
+
+export type InvoiceItemFormValues = z.infer<typeof invoiceItemFormSchema>;
+
+export const invoiceFormSchema = z
+  .object({
+    businessProfileId: z.string().min(1, "Select a business profile"),
+    invoiceNumber: z.string().trim().min(1, "Invoice number is required"),
+    date: z.string().min(1, "Invoice date is required"),
+    /** "" when the buyer is being typed in fresh rather than picked. */
+    buyerId: z.string(),
+    buyer: buyerFormSchema,
+    saveBuyer: z.boolean(),
+    sameAsBilling: z.boolean(),
+    shipTo: shipToFormSchema,
+    items: z.array(invoiceItemFormSchema).min(1, "Add at least one item"),
+    termsAndConditions: z.string(),
+    notes: z.string(),
+  })
+  .superRefine((values, ctx) => {
+    // Only demand Ship To details once "same as billing" is switched off.
+    if (values.sameAsBilling) return;
+
+    const required = [
+      ["name", "Shipping name is required"],
+      ["address", "Shipping address is required"],
+      ["state", "Shipping state is required"],
+    ] as const;
+
+    for (const [field, message] of required) {
+      if (values.shipTo[field].trim() === "") {
+        ctx.addIssue({ code: "custom", path: ["shipTo", field], message });
+      }
+    }
+
+    if (!/^\d{2}$/.test(values.shipTo.stateCode.trim())) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["shipTo", "stateCode"],
+        message: "State code is 2 digits, e.g. 27",
+      });
+    }
+  });
+
+export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 
 /**
  * Warn when the GSTIN's first two digits disagree with the state code (§4).
@@ -201,14 +272,6 @@ export const exportBundleSchema = z.object({
   invoices: z.array(invoiceSchema),
 });
 
-/** The GST slabs offered in the items table, as a Zod enum for later milestones. */
-export const gstRateSchema = z
-  .number()
-  .refine(
-    (rate) => (GST_SLABS as readonly number[]).includes(rate),
-    `GST rate must be one of ${GST_SLABS.join(", ")}%`,
-  );
-
 // ---------------------------------------------------------------------------
 // Form values -> stored records
 // ---------------------------------------------------------------------------
@@ -260,6 +323,57 @@ export function toBuyer(values: BuyerFormValues): Buyer {
     stateCode: values.stateCode,
     gstin: blankToUndefined(values.gstin)?.toUpperCase(),
     phone: blankToUndefined(values.phone),
+  };
+}
+
+export function toShipTo(values: ShipToFormValues): ShipTo {
+  return {
+    name: values.name,
+    address: values.address,
+    state: values.state,
+    stateCode: values.stateCode,
+    gstin: blankToUndefined(values.gstin)?.toUpperCase(),
+  };
+}
+
+export function toInvoiceItems(
+  values: InvoiceItemFormValues[],
+): InvoiceItem[] {
+  return values.map((item) => ({
+    description: item.description,
+    hsn: item.hsn,
+    quantity: item.quantity,
+    rate: item.rate,
+    gstRate: item.gstRate,
+  }));
+}
+
+/**
+ * Freeze a form into an issued invoice (§5 snapshot rule).
+ *
+ * The business details, buyer, ship-to, terms, and accent colour are copied in
+ * as they stand right now. Editing the source profile or saved buyer afterwards
+ * must never change this invoice, which is why nothing here is stored as a
+ * reference — `businessProfileId` is kept only for grouping in history.
+ */
+export function toInvoice(
+  values: InvoiceFormValues,
+  profile: BusinessProfile,
+  id: string,
+): Invoice {
+  return {
+    id,
+    invoiceNumber: values.invoiceNumber,
+    date: values.date,
+    businessProfileId: profile.id,
+    businessSnapshot: structuredClone(profile),
+    buyer: toBuyer(values.buyer),
+    shipTo: values.sameAsBilling ? undefined : toShipTo(values.shipTo),
+    accentColor: profile.accentColor,
+    items: toInvoiceItems(values.items),
+    termsAndConditions: blankToUndefined(values.termsAndConditions),
+    status: "unpaid",
+    notes: blankToUndefined(values.notes),
   };
 }
 

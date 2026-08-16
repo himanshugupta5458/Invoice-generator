@@ -6,11 +6,14 @@ import {
   buyerFormSchema,
   exportBundleSchema,
   gstinStateMismatch,
+  invoiceFormSchema,
   toBuyer,
+  toInvoice,
   toProfile,
   toSavedBuyer,
   type BusinessProfileFormValues,
   type BuyerFormValues,
+  type InvoiceFormValues,
 } from "@/lib/validation";
 
 function profileValues(
@@ -222,6 +225,153 @@ describe("form values to stored records", () => {
     );
     expect(saved.id).toBe("buyer-1");
     expect(saved.gstin).toBe("27AAACB1234C1ZX");
+  });
+});
+
+function invoiceValues(
+  overrides: Partial<InvoiceFormValues> = {},
+): InvoiceFormValues {
+  return {
+    businessProfileId: "profile-1",
+    invoiceNumber: "SC/2026/1",
+    date: "2026-08-16",
+    buyerId: "",
+    buyer: buyerValues(),
+    saveBuyer: false,
+    sameAsBilling: true,
+    shipTo: { name: "", address: "", state: "", stateCode: "", gstin: "" },
+    items: [
+      {
+        description: "Cotton kurta",
+        hsn: "6206",
+        quantity: 2,
+        rate: 500,
+        gstRate: 18,
+      },
+    ],
+    termsAndConditions: "Payment due within 15 days.",
+    notes: "",
+    ...overrides,
+  };
+}
+
+describe("invoiceFormSchema", () => {
+  it("accepts a complete invoice", () => {
+    expect(invoiceFormSchema.safeParse(invoiceValues()).success).toBe(true);
+  });
+
+  it("requires a business profile and at least one item", () => {
+    const result = invoiceFormSchema.safeParse(
+      invoiceValues({ businessProfileId: "", items: [] }),
+    );
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const messages = result.error.issues.map((issue) => issue.message);
+    expect(messages).toContain("Select a business profile");
+    expect(messages).toContain("Add at least one item");
+  });
+
+  it("rejects an item with no description, no quantity, or an off-slab GST rate", () => {
+    const result = invoiceFormSchema.safeParse(
+      invoiceValues({
+        items: [
+          { description: "", hsn: "", quantity: 0, rate: -1, gstRate: 17 },
+        ],
+      }),
+    );
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const paths = result.error.issues.map((issue) => issue.path.join("."));
+    expect(paths).toContain("items.0.description");
+    expect(paths).toContain("items.0.quantity");
+    expect(paths).toContain("items.0.rate");
+    expect(paths).toContain("items.0.gstRate");
+  });
+
+  it("ignores empty Ship To fields while 'same as billing' is on", () => {
+    // Ship To is optional by default, so blank fields must not block a save.
+    expect(
+      invoiceFormSchema.safeParse(invoiceValues({ sameAsBilling: true })).success,
+    ).toBe(true);
+  });
+
+  it("requires Ship To details once 'same as billing' is switched off", () => {
+    const result = invoiceFormSchema.safeParse(
+      invoiceValues({ sameAsBilling: false }),
+    );
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const paths = result.error.issues.map((issue) => issue.path.join("."));
+    expect(paths).toContain("shipTo.name");
+    expect(paths).toContain("shipTo.address");
+    expect(paths).toContain("shipTo.state");
+    expect(paths).toContain("shipTo.stateCode");
+  });
+
+  it("accepts a filled-in Ship To", () => {
+    expect(
+      invoiceFormSchema.safeParse(
+        invoiceValues({
+          sameAsBilling: false,
+          shipTo: {
+            name: "Nandi Warehouse",
+            address: "Plot 9",
+            state: "Karnataka",
+            stateCode: "29",
+            gstin: "",
+          },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+});
+
+describe("toInvoice — the snapshot rule (§5)", () => {
+  const profile = toProfile(profileValues(), "profile-1");
+
+  it("defaults to unpaid and freezes the accent colour and terms", () => {
+    const invoice = toInvoice(invoiceValues(), profile, "invoice-1");
+    expect(invoice.status).toBe("unpaid");
+    expect(invoice.accentColor).toBe(profile.accentColor);
+    expect(invoice.termsAndConditions).toBe("Payment due within 15 days.");
+    expect(invoice.businessProfileId).toBe("profile-1");
+  });
+
+  it("keeps a deep copy of the business, so later profile edits cannot change it", () => {
+    const invoice = toInvoice(invoiceValues(), profile, "invoice-1");
+
+    // Simulate the user editing the profile afterwards.
+    profile.name = "Renamed Later";
+    profile.bank.ifsc = "CHANGED0001";
+    profile.accentColor = "#000000";
+
+    expect(invoice.businessSnapshot.name).toBe("Saara Collection");
+    expect(invoice.businessSnapshot.bank.ifsc).toBe("HDFC0000123");
+    expect(invoice.accentColor).toBe("#7a5230");
+  });
+
+  it("omits shipTo when shipping to the billing address", () => {
+    expect(toInvoice(invoiceValues(), profile, "i1").shipTo).toBeUndefined();
+  });
+
+  it("stores shipTo when a separate shipping party is given", () => {
+    const invoice = toInvoice(
+      invoiceValues({
+        sameAsBilling: false,
+        shipTo: {
+          name: "Nandi Warehouse",
+          address: "Plot 9",
+          state: "Karnataka",
+          stateCode: "29",
+          gstin: "",
+        },
+      }),
+      profile,
+      "i1",
+    );
+    expect(invoice.shipTo?.name).toBe("Nandi Warehouse");
+    expect(invoice.shipTo?.stateCode).toBe("29");
+    expect(invoice.shipTo?.gstin).toBeUndefined();
   });
 });
 
