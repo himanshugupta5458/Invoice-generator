@@ -21,6 +21,7 @@ import type {
   InvoiceStatus,
   SavedBuyer,
 } from "./types";
+import { exportBundleSchema } from "./validation";
 
 /** Namespaced storage keys (§7). */
 export const STORAGE_KEYS = {
@@ -216,11 +217,10 @@ export class LocalStorageRepository implements Repository {
 }
 
 /**
- * Structural check for an uploaded backup file. Deliberately light — it only
- * proves the three collections are present and array-shaped, which is enough to
- * avoid wiping good data with a wrong file.
- *
- * // TODO: tighten with the Zod schemas from lib/validation.ts once they exist (milestone 4).
+ * Validate an uploaded backup file before it is allowed to replace stored data.
+ * Records are checked structurally rather than against the stricter form rules,
+ * so a legitimate export always re-imports cleanly while a wrong file is
+ * rejected before it can wipe good data.
  */
 export function parseExportBundle(raw: string): ExportBundle {
   let parsed: unknown;
@@ -230,32 +230,20 @@ export function parseExportBundle(raw: string): ExportBundle {
     throw new StorageError("That file is not valid JSON.", { cause });
   }
 
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new StorageError("That backup file is not in the expected format.");
-  }
-
-  const candidate = parsed as Partial<ExportBundle>;
-  const { profiles, buyers, invoices } = candidate;
-
-  if (
-    !Array.isArray(profiles) ||
-    !Array.isArray(buyers) ||
-    !Array.isArray(invoices)
-  ) {
+  const result = exportBundleSchema.safeParse(parsed);
+  if (!result.success) {
     throw new StorageError(
-      "That backup file is missing its profiles, buyers, or invoices.",
+      "That file is not an InvoiceGen backup — it is missing valid profiles, buyers, or invoices.",
+      { cause: result.error },
     );
   }
 
   return {
     version: EXPORT_VERSION,
-    exportedAt:
-      typeof candidate.exportedAt === "string"
-        ? candidate.exportedAt
-        : new Date().toISOString(),
-    profiles,
-    buyers,
-    invoices,
+    exportedAt: result.data.exportedAt ?? new Date().toISOString(),
+    profiles: result.data.profiles,
+    buyers: result.data.buyers,
+    invoices: result.data.invoices,
   };
 }
 

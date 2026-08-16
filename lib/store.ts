@@ -11,6 +11,7 @@
  * yet" or "not loaded yet", which keeps empty states from flashing.
  */
 
+import { useEffect } from "react";
 import { create } from "zustand";
 
 import {
@@ -199,6 +200,24 @@ export const useInvoiceStore = create<InvoiceGenState>()((set, get) => {
     },
   };
 });
+
+/**
+ * Loads persisted data on mount and reports whether that first read is done.
+ *
+ * Hydration deliberately happens in an effect rather than at module load: the
+ * server render has no `localStorage`, so reading during render would produce
+ * markup the client cannot reproduce. Call this from any client component that
+ * displays stored records.
+ */
+export function useHydratedStore(): boolean {
+  const hydrated = useInvoiceStore((state) => state.hydrated);
+
+  useEffect(() => {
+    void useInvoiceStore.getState().hydrate();
+  }, []);
+
+  return hydrated;
+}
 
 /** Reset helper for tests and for the "start over" path. */
 export function resetStoreForTests(): void {
