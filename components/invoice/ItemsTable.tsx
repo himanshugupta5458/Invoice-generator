@@ -36,14 +36,17 @@ export const EMPTY_ITEM = {
  * max-w-5xl and the totals panel takes 18rem): the fixed columns and gaps come
  * to 30.75rem, leaving the flexible description column ~7.75rem at worst.
  *
- * The GST column carries a `<select>`, which spends 2.75rem of whatever it is
- * given on chrome — `px-3` plus the `pr-8` the shared Select reserves for the
- * native dropdown arrow. At the 4.5rem it had, the text box came to 26px and a
- * two-digit slab ("12%", "18%", "28%") needs ~27px, so the second digit was
- * clipped off. 5.5rem leaves ~15px of headroom; the half rem is taken back from
- * Amount, which holds a wrapping span rather than a fixed-width control.
- * Padding cannot be trimmed per-instance here: `cn` is a plain join, so a
- * narrower `pr-*` passed via className still loses to `pr-8` on CSS order.
+ * The GST column is the tight one, because a `<select>` gives its text far less
+ * room than its width suggests. Chrome reserves ~16px at the right edge for the
+ * dropdown arrow *on top of* the author's padding, so the usable text box is
+ * width - 12px (`px-3`) - 32px (`pr-8`) - ~16px (arrow) - 2px (border), i.e.
+ * 48px less than you would budget from the padding alone. At 4.5rem that left
+ * 10px and a slab clipped after its first digit; at 5.5rem it left 26px, which
+ * fits "28" but not the ~27px of "28%" — hence the bare numbers here, with the
+ * unit carried once by the column heading. 26px against 17px of digits is the
+ * margin this column now runs on. Padding cannot be trimmed per-instance to
+ * claw more back: `cn` is a plain join, so a narrower `pr-*` passed via
+ * className still loses to the shared `pr-8` on CSS order.
  */
 const ROW_GRID =
   "md:grid-cols-[minmax(0,1fr)_5rem_4rem_5.5rem_5.5rem_6.5rem_2rem] md:gap-1.5";
@@ -179,7 +182,13 @@ export function ItemsTable({
       </div>
 
       {/* Column headings belong to the desktop grid only; on a phone each field
-          carries its own label inside the card. */}
+          carries its own label inside the card.
+
+          Each heading is inset by the same 12px its control pads its text by,
+          so a label sits over its value rather than over its column box. That
+          also puts real space between adjacent headings: without it, the
+          right-aligned "Rate" ended 6px (one grid gap) from where the
+          left-aligned "GST %" began, and the two read as one run of text. */}
       <div
         aria-hidden="true"
         className={cn(
@@ -187,13 +196,14 @@ export function ItemsTable({
           ROW_GRID,
         )}
       >
-        <span>Description</span>
-        <span>HSN/SAC</span>
-        <span className="text-right">Qty</span>
-        <span className="text-right">Rate</span>
-        {/* Left, unlike Qty/Rate: a select renders its value left-aligned, and
-            a right-aligned heading over it now sits a visible gap away. */}
-        <span>GST</span>
+        <span className="pl-3">Description</span>
+        <span className="pl-3">HSN/SAC</span>
+        <span className="pr-3 text-right">Qty</span>
+        <span className="pr-3 text-right">Rate</span>
+        {/* Left, unlike Qty/Rate: a select renders its value left-aligned. The
+            "%" lives here because the options cannot afford the character. */}
+        <span className="pl-3">GST %</span>
+        {/* Amount is a bare span, not a padded control, so its heading is flush. */}
         <span className="text-right">Amount</span>
         <span />
       </div>
@@ -292,10 +302,13 @@ export function ItemsTable({
               </div>
 
               <div className="min-w-0">
-                <CellLabel htmlFor={`${rowId}-gstRate`}>GST</CellLabel>
+                <CellLabel htmlFor={`${rowId}-gstRate`}>GST %</CellLabel>
+                {/* Options are bare numbers — see ROW_GRID for why the "%" does
+                    not fit. The unit stays available to a screen reader through
+                    the label and the aria-label, which do have room for it. */}
                 <Select
                   id={`${rowId}-gstRate`}
-                  aria-label={`Item ${index + 1} GST rate`}
+                  aria-label={`Item ${index + 1} GST rate, percent`}
                   disabled={disabled}
                   className="tabular-nums"
                   {...register(`items.${index}.gstRate`, {
@@ -304,7 +317,7 @@ export function ItemsTable({
                 >
                   {GST_SLABS.map((slab) => (
                     <option key={slab} value={slab}>
-                      {slab}%
+                      {slab}
                     </option>
                   ))}
                 </Select>
