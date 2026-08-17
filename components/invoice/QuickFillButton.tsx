@@ -26,6 +26,11 @@ import type { InvoiceItemFormValues } from "@/lib/validation";
  * model, so the copy says plainly that they are estimates for testing — never
  * anything that should go out as a real purchase record without being checked.
  *
+ * The one figure that is *not* an estimate is the total. The model only picks
+ * the mix; the rates are solved server-side against the app's own GST engine, so
+ * a target of ₹45,000 comes back as rows that total ₹45,000 to the rupee. That
+ * is why the target is whole rupees only — an invoice total always is (§6).
+ *
  * Nothing here holds a key or talks to Groq: it POSTs to /api/quick-fill, which
  * is the only place the key exists.
  */
@@ -58,8 +63,15 @@ export interface QuickFillState {
   generate: () => Promise<void>;
 }
 
+/**
+ * @param onGenerate  Where the solved rows go — the same path CSV rows take.
+ * @param isIntraState  The invoice's current tax branch (§6). It has to travel
+ *   with the request because CGST + SGST and IGST round differently, and the
+ *   solver has to price for the branch these rows will actually be taxed on.
+ */
 export function useQuickFill(
   onGenerate: (items: InvoiceItemFormValues[]) => void,
+  isIntraState: boolean,
 ): QuickFillState {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -93,6 +105,16 @@ export function useQuickFill(
         setError("Enter a target amount greater than 0, or leave it blank.");
         return;
       }
+      // The rows will total this exactly, and an invoice total is always a whole
+      // number of rupees (§6) — so a target with paise in it is unreachable by
+      // definition, and saying so beats quietly hitting a different figure.
+      if (!Number.isInteger(parsed)) {
+        setSummary(null);
+        setError(
+          "Use a whole number of rupees — an invoice total is always rounded to the nearest rupee.",
+        );
+        return;
+      }
       target = parsed;
     }
 
@@ -104,7 +126,11 @@ export function useQuickFill(
       const response = await fetch("/api/quick-fill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: trimmed, targetAmount: target }),
+        body: JSON.stringify({
+          description: trimmed,
+          targetAmount: target,
+          isIntraState,
+        }),
       });
 
       // Every route reply is JSON, but a proxy or a platform error page is not,
@@ -211,7 +237,8 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
             Quick Fill (AI)
           </h3>
           <p className="mt-0.5 text-xs text-stone-500">
-            Describe a purchase and the AI will draft sample rows for you.
+            Describe a purchase and the AI will draft sample rows for you. Give
+            it a target and the rows will total exactly that.
           </p>
         </div>
         <button
@@ -285,7 +312,9 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
               if (!locked) void state.generate();
             }}
           />
-          <p className="text-xs text-stone-500">Including GST.</p>
+          <p className="text-xs text-stone-500">
+            Including GST. Whole rupees.
+          </p>
         </div>
       </div>
 
@@ -299,8 +328,9 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
           {state.busy ? "Generating…" : "Generate items"}
         </Button>
         <p className="text-xs text-stone-500">
-          Sample, estimated rows for testing — not verified purchase data. Check
-          every figure before issuing the invoice.
+          Sample rows for testing — not verified purchase data. The prices are
+          worked backwards from the target, not looked up. Check every figure
+          before issuing the invoice.
         </p>
       </div>
 
@@ -338,7 +368,11 @@ function QuickFillSummaryNote({ summary }: { summary: QuickFillSummary }) {
           ₹{formatINR(summary.total)}
         </span>
         {summary.target !== undefined && (
-          <> against a target of ₹{formatINR(summary.target)}</>
+          <>
+            {summary.total === summary.target
+              ? " — exactly the target you asked for"
+              : ` against a target of ₹${formatINR(summary.target)}`}
+          </>
         )}
         .
       </p>

@@ -464,12 +464,15 @@ Leave `// TODO` markers where these would hook in, but keep v1 lean.
 ### What it is for
 
 Hand-typing eight item rows to see what an invoice looks like is the slowest part of
-trying the app out. Quick Fill takes a sentence — "furniture shopping, roughly
-₹45,000 total", "artificial jewellery order" — and drafts a plausible set of rows to
-fill the table with. It is an **exploration aid**, and the UI must say so: these are
-**sample, estimated items for testing, not verified purchase data**. Nothing about
-the tax engine, the PDF, or persistence changes; Quick Fill only produces candidate
-rows for the items table, exactly as CSV import does.
+trying the app out. Quick Fill takes a sentence — "furniture shopping, ₹45,000
+total", "artificial jewellery order" — and drafts a plausible set of rows to fill the
+table with. Given a target it produces rows that come to **exactly** that figure,
+which is what makes it useful for reproducing a bill you already know the total of.
+It is still an **exploration aid**, and the UI must say so: these are **sample items
+for testing, not verified purchase data**, and the prices are worked backwards from
+the target rather than looked up. Nothing about the tax engine, the PDF, or
+persistence changes; Quick Fill only produces candidate rows for the items table,
+exactly as CSV import does.
 
 ### API surface
 
@@ -477,16 +480,22 @@ rows for the items table, exactly as CSV import does.
 
 ```ts
 // request
-{ description: string; targetAmount?: number }
+{ description: string; targetAmount?: number; isIntraState?: boolean }
 // 2xx response
 { items: InvoiceItem[]; rejected: Array<{ index: number; label?: string; messages: string[] }>; total: number }
 // any error
 { error: string }   // always a plain sentence, never an upstream dump
 ```
 
-`targetAmount`, when given, is the **GST-inclusive grand total** the rows should land
-near (~5%). `total` is what the returned rows actually came to, so the UI can show
-the two side by side.
+`targetAmount`, when given, is the **GST-inclusive grand total** the rows must come
+to **exactly** — in whole rupees, because §6 rounds every grand total to the nearest
+one, and a target with paise in it is refused rather than quietly missed. `total` is
+what the returned rows came to through `computeInvoice()`, so it equals the target.
+
+`isIntraState` is the invoice's tax branch (§6). It has to travel with the request:
+CGST + SGST rounds half the slab twice where IGST rounds the whole slab once, so the
+two branches need different rates to land on the same total. Absent means intra-state,
+which is what `computeInvoice()` itself falls back to.
 
 ### Rules
 
@@ -494,14 +503,29 @@ the two side by side.
   nowhere else. No `NEXT_PUBLIC_` prefix, not in a response body, not in an error
   message. Documented in `.env.example` with a pointer to `console.groq.com` for a
   free key.
+- **The model picks the mix; the app does the arithmetic.** The model returns
+  *what was bought* — description, HSN, GST slab, quantity, and a rough relative
+  weight per line — and no prices at all. A deterministic solver in
+  `lib/quick-fill-solver.ts` then works backwards from the GST-inclusive target to
+  the per-unit rates. A language model is a good guesser of what a furniture bill
+  contains and an unreliable arithmetician; the split plays to the first and stops
+  depending on the second.
+- **The target is hit exactly, or refused.** The solver distributes the target across
+  the lines by weight, backs each line's pre-tax value out of its slab, and re-solves
+  one line — the finest-grained one — to swallow the rounding residual. It then
+  **verifies through the real `computeInvoice()`** and only returns rows whose
+  `grandTotal` *is* the target. A target no set of rates can reach (below the smallest
+  invoice those items can make) comes back as a plain sentence naming the figure they
+  can reach, never as rows that quietly miss.
 - **Model output is never trusted.** Every returned row is validated against
-  `invoiceItemFormSchema` — the same schema the items table and the CSV import use —
-  before it can reach the form. Same rule as §4, applied to a less trustworthy
-  source.
-- **Nothing is silently dropped, and nothing is force-fit.** Rows that fail
-  validation come back in `rejected` with the reason and are shown to the user. Rows
-  that fail are *not* corrected to make them pass, and rows that miss the target
-  total are *not* rescaled to hit it — the figures are reported as generated.
+  `quickFillMixItemSchema` — `invoiceItemFormSchema` minus the rate the model no
+  longer supplies, plus the weight it does — before it can be priced, and the solved
+  rows are checked against the full `invoiceItemFormSchema` before they leave the
+  route. Same rule as §4, applied to a less trustworthy source.
+- **Nothing is silently dropped.** Rows that fail validation come back in `rejected`
+  with the reason and are shown to the user; they are *not* corrected to make them
+  pass. Solving the rates is not force-fitting the model's figures — the model never
+  supplied any figures to fit.
 - **Refuse cheaply, before spending the API.** Empty input and input over ~500
   characters are rejected without an upstream call, on both the client and the route.
 - **Rate limit per IP.** Groq's free tier is roughly 30 requests/minute shared across
@@ -522,22 +546,35 @@ the two side by side.
   `llama-3.3-70b-versatile`, JSON mode. Free tier, no card.
 - `app/api/quick-fill/route.ts` — the only server route in the app. Handles one
   request; stores nothing.
-- `lib/quick-fill.ts` — **pure**: prompt construction, response parsing, row
-  validation, total estimation. No network, no `process.env`, so it is testable
-  exactly like `lib/csv.ts`.
+- `lib/quick-fill.ts` — **pure**: prompt construction, response parsing, mix row
+  validation. No network, no `process.env`, so it is testable exactly like
+  `lib/csv.ts`.
+- `lib/quick-fill-solver.ts` — **pure**: the rate solver, kept apart from the AI call
+  so the arithmetic is testable without the network. Integer paise throughout, and it
+  checks its own answer against `computeInvoice()` rather than a second copy of the
+  same sums.
 - `lib/rate-limit.ts` — **pure** token bucket; `now` is a parameter, not a clock read.
 - `lib/quick-fill-limiter.ts` — the shared limiter instance, kept apart so tests can
   reset it.
 - `components/invoice/QuickFillButton.tsx` — the trigger beside the CSV button and
-  the panel it opens (description textarea, optional target amount, Generate).
-  Generated rows append through the same path CSV rows do.
+  the panel it opens (description textarea, optional whole-rupee target, Generate).
+  Generated rows append through the same path CSV rows do. It passes the invoice's
+  current tax branch down from the totals it is already rendering.
 
-### Required tests (`tests/quick-fill.test.ts`, `tests/rate-limit.test.ts`, `tests/quick-fill-route.test.ts`)
+### Required tests (`tests/quick-fill.test.ts`, `tests/quick-fill-solver.test.ts`, `tests/rate-limit.test.ts`, `tests/quick-fill-route.test.ts`)
 
-Mock the Groq call; never hit the network. Cover: the prompt names every GST slab and
-the row cap; a reply wrapped in markdown fences or prose is still recovered; strings
-like `"₹1,250.00"` and `"18%"` coerce; an off-slab GST rate is rejected with a reason
-while good rows in the same reply still land; a non-JSON reply is reported, not
+The solver is tested as pure arithmetic, with no model in sight: given a target and a
+set of items with slabs and weights, `computeInvoice()` on the result returns exactly
+the target — across single and mixed slabs, both tax branches, runs of consecutive
+awkward targets, fractional quantities and lopsided weights — and the rounding drift
+is absorbed into the rates rather than left on the round-off line. An unsatisfiable
+target returns a message naming what the items can reach.
+
+Everywhere else, mock the Groq call; never hit the network. Cover: the prompt names
+every GST slab and the row cap and takes pricing off the model; a reply wrapped in
+markdown fences or prose is still recovered; strings like `"₹1,250.00"` and `"18%"`
+coerce; an off-slab GST rate is rejected with a reason while good rows in the same
+reply still land; a non-JSON reply is reported, not
 thrown; the token bucket refills at the configured rate and never past its burst; the
 key never appears in a response; empty input and a rate-limited request both cost
 zero upstream calls.

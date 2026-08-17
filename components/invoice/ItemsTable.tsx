@@ -179,7 +179,9 @@ export function ItemsTable({
   }
 
   const csv = useCsvImport(handleBulkAppend);
-  const quickFill = useQuickFill(handleBulkAppend);
+  // Quick Fill solves its rates against this invoice's tax branch, so it needs
+  // the branch the totals panel is already showing (§6, §16).
+  const quickFill = useQuickFill(handleBulkAppend, computed.isIntraState);
   const quickFillPanelId = `${rowIdPrefix}quick-fill`;
 
   return (

@@ -6,22 +6,29 @@
  * decision about *what to ask* and *what to accept back* is made here so it can
  * be tested without touching Groq.
  *
+ * The model is asked for a MIX, not for money. It names the goods, the slab, how
+ * many units, and a rough relative weight for each line — and nothing else. The
+ * per-unit rates are then solved deterministically in `lib/quick-fill-solver.ts`
+ * so the invoice lands on its target exactly. A language model is a good guesser
+ * of what a furniture bill contains and a poor arithmetician; splitting the job
+ * that way plays to the first and stops relying on the second.
+ *
  * The governing rule is the CSV rule (§4), applied to a less trustworthy source:
  *
  *  1. MODEL OUTPUT IS NEVER TRUSTED. Every row is validated against
- *     `invoiceItemFormSchema` — the same schema the items table and the CSV
- *     import use — before it can reach the form. A hallucinated 15% GST slab or
- *     a negative quantity is refused here, not rendered on an invoice.
+ *     `quickFillMixItemSchema` — `invoiceItemFormSchema` minus the rate the model
+ *     no longer supplies, plus the weight it does — before it can be priced. A
+ *     hallucinated 15% GST slab or a negative quantity is refused here, not
+ *     rendered on an invoice. The solved rows are then checked once more against
+ *     the full item schema before they leave the route.
  *  2. NOTHING IS SILENTLY DROPPED. A refused row comes back in `rejected` with
  *     its position and the reason, so the user can see what the model got wrong
  *     rather than wondering why they asked for eight items and got six.
- *
- * Nothing is ever force-fit either: if the model's rows do not add up to the
- * requested total, the numbers are reported as they are, not scaled to match.
  */
 
+import { z } from "zod";
+
 import { GST_SLABS } from "./types";
-import type { InvoiceItemFormValues } from "./validation";
 import { invoiceItemFormSchema } from "./validation";
 
 /** OpenAI-compatible chat completions endpoint. */
@@ -49,11 +56,30 @@ export const MAX_GENERATED_ITEMS = 20;
 
 export interface QuickFillInput {
   description: string;
-  /** Approximate grand total (GST inclusive) the rows should add up to. */
+  /**
+   * Exact grand total (GST inclusive, whole rupees) the rows must add up to.
+   * Passed to the model only as a hint about scale — it is the solver, not the
+   * model, that makes the arithmetic come out.
+   */
   targetAmount?: number;
 }
 
-/** A row the model returned that the item schema refused. */
+/**
+ * One line of the model's proposed mix: what was bought, at what slab, how many,
+ * and roughly what share of the spend it accounts for. Deliberately has no
+ * `rate` — that is solved, not generated.
+ */
+export const quickFillMixItemSchema = invoiceItemFormSchema
+  .omit({ rate: true })
+  .extend({
+    weight: z
+      .number({ error: "Enter a weight" })
+      .positive("Weight must be more than 0"),
+  });
+
+export type QuickFillMixItem = z.infer<typeof quickFillMixItemSchema>;
+
+/** A row the model returned that the mix schema refused. */
 export interface QuickFillRowError {
   /** 1-based position in the model's list, so the reason has an anchor. */
   index: number;
@@ -62,8 +88,8 @@ export interface QuickFillRowError {
   messages: string[];
 }
 
-export interface QuickFillParseResult {
-  items: InvoiceItemFormValues[];
+export interface QuickFillMixResult {
+  items: QuickFillMixItem[];
   rejected: QuickFillRowError[];
   /**
    * Set when the reply could not be read as a list of items at all (not JSON,
@@ -78,9 +104,18 @@ export interface QuickFillParseResult {
  * the route (and its API-key handling) into the browser bundle.
  */
 export interface QuickFillResponseBody {
-  items: InvoiceItemFormValues[];
+  items: Array<{
+    description: string;
+    hsn?: string;
+    quantity: number;
+    rate: number;
+    gstRate: number;
+  }>;
   rejected: QuickFillRowError[];
-  /** GST-inclusive total of `items`, for display next to the requested target. */
+  /**
+   * GST-inclusive grand total of `items` as `computeInvoice()` calculates it.
+   * Equal to the requested target, which is the whole point of the solver.
+   */
   total: number;
 }
 
@@ -96,7 +131,7 @@ const FIELD_LABELS: Record<string, string> = {
   description: "Description",
   hsn: "HSN/SAC",
   quantity: "Quantity",
-  rate: "Rate",
+  weight: "Weight",
   gstRate: "GST rate",
 };
 
@@ -107,29 +142,35 @@ const FIELD_LABELS: Record<string, string> = {
  * being described, and the caps below still apply to whatever comes back.
  */
 export const QUICK_FILL_SYSTEM_PROMPT = [
-  "You generate sample line items for an Indian GST tax invoice.",
+  "You choose the ITEM MIX for a sample Indian GST tax invoice.",
+  "",
+  "You do not set prices. Give each line a rough relative weight; the app solves",
+  "the exact per-unit rates itself so the invoice lands on its target to the rupee.",
   "",
   "Reply with JSON only — a single object of the form:",
-  '{"items":[{"description":"...","hsn":"6206","quantity":2,"rate":1250,"gstRate":12}]}',
+  '{"items":[{"description":"...","hsn":"6206","quantity":2,"gstRate":12,"weight":3000}]}',
   "",
   "Rules:",
   `- Return between 1 and ${MAX_GENERATED_ITEMS} items.`,
   "- description: a short, plausible product or service name (max 80 characters).",
   '- hsn: the 4-8 digit HSN or SAC code if you are reasonably confident of it, otherwise "".',
-  "- quantity: a positive number.",
-  "- rate: the PER-UNIT price before tax, in rupees, as a plain number — no symbols, no commas.",
+  "- quantity: a positive number — how many units of this item were bought.",
+  "- weight: roughly how many rupees of the purchase this whole line accounts for,",
+  "  before tax. A rough figure is fine; it only sets the proportions between lines.",
   `- gstRate: the total GST percentage, and it MUST be one of exactly these slabs: ${SLAB_LIST}.`,
   "- Use the GST slab that genuinely applies to the goods; do not invent other rates.",
+  "- Do NOT make the weights add up to any particular figure, and do NOT include a",
+  "  per-unit rate, a tax amount, or a total. The arithmetic is the app's job.",
   "- No commentary, no markdown fences, no trailing text — the reply must be JSON and nothing else.",
 ].join("\n");
 
 /**
  * The user turn: the description, plus the arithmetic target when one was given.
  *
- * The total is specified as GST-inclusive because that is what somebody means by
- * "roughly ₹45,000 for the lot", and the model is told to work the per-unit
- * rates back from it rather than being handed a taxable-value figure it would
- * have to guess the tax on.
+ * The total is given as GST-inclusive because that is what somebody means by
+ * "roughly ₹45,000 for the lot". The model is told the figure so it picks goods
+ * and quantities that make sense at that scale — two sofas, not two hundred —
+ * and told in the same breath not to try to hit it, because the solver will.
  */
 export function buildQuickFillUserPrompt(input: QuickFillInput): string {
   const description = input.description.trim();
@@ -139,13 +180,14 @@ export function buildQuickFillUserPrompt(input: QuickFillInput): string {
     lines.push(
       "",
       `Target invoice total: ₹${input.targetAmount} — this is the GRAND TOTAL including GST.`,
-      "Choose quantities and per-unit rates so that the sum of",
-      "quantity × rate × (1 + gstRate/100) over all items lands within about 5% of that figure.",
+      "Use it only to judge scale: pick goods and quantities that are plausible for a",
+      "purchase of that size. Do not try to make the numbers land on it — the app",
+      "computes the exact rates from your weights.",
     );
   } else {
     lines.push(
       "",
-      "No target total was given — pick quantities and rates that are realistic for this purchase.",
+      "No target total was given — pick quantities and weights that are realistic for this purchase.",
     );
   }
 
@@ -185,7 +227,7 @@ export function buildQuickFillRequestBody(input: QuickFillInput): {
 /**
  * Numbers as a language model writes them: 1250, "1250", "₹1,250.00", "12%".
  * Anything left unreadable becomes NaN, which the schema then reports in its own
- * words ("Enter a rate") rather than in parser-speak.
+ * words ("Enter a quantity") rather than in parser-speak.
  */
 function toNumber(raw: unknown): number {
   if (typeof raw === "number") return Number.isFinite(raw) ? raw : Number.NaN;
@@ -250,13 +292,37 @@ function toRowArray(payload: unknown): unknown[] | undefined {
 }
 
 /**
- * Validate a model reply into invoice items (§16).
+ * The weight a row proposes.
+ *
+ * Models reach for several names for "how much of the bill is this", and some
+ * ignore the instruction and price the line anyway. A quoted per-unit rate is a
+ * perfectly good proportion, so it is accepted as one — the figure is used for
+ * its ratio to the other rows and never as money.
+ */
+function toWeight(record: Record<string, unknown>, quantity: number): number {
+  for (const key of ["weight", "share", "proportion", "amount", "value"]) {
+    const parsed = toNumber(record[key]);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  for (const key of ["rate", "price", "unitPrice"]) {
+    const parsed = toNumber(record[key]);
+    if (Number.isFinite(parsed) && Number.isFinite(quantity)) {
+      return parsed * quantity;
+    }
+  }
+
+  return Number.NaN;
+}
+
+/**
+ * Validate a model reply into a priced-later item mix (§16).
  *
  * Returns the rows that passed, the rows that did not with reasons, or a
  * `responseError` when the reply was not a list of items at all.
  */
-export function parseQuickFillResponse(raw: string): QuickFillParseResult {
-  const empty: QuickFillParseResult = { items: [], rejected: [] };
+export function parseQuickFillMix(raw: string): QuickFillMixResult {
+  const empty: QuickFillMixResult = { items: [], rejected: [] };
 
   const payload = extractJson(raw);
   if (payload === undefined) {
@@ -281,7 +347,7 @@ export function parseQuickFillResponse(raw: string): QuickFillParseResult {
     };
   }
 
-  const items: InvoiceItemFormValues[] = [];
+  const items: QuickFillMixItem[] = [];
   const rejected: QuickFillRowError[] = [];
 
   rows.slice(0, MAX_GENERATED_ITEMS).forEach((row, position) => {
@@ -293,15 +359,16 @@ export function parseQuickFillResponse(raw: string): QuickFillParseResult {
     }
 
     const record = row as Record<string, unknown>;
+    const quantity = toNumber(record.quantity ?? record.qty);
     const candidate = {
       description: toText(record.description ?? record.name ?? record.item),
       hsn: toText(record.hsn ?? record.sac ?? record.hsnCode).trim(),
-      quantity: toNumber(record.quantity ?? record.qty),
-      rate: toNumber(record.rate ?? record.price ?? record.unitPrice),
+      quantity,
+      weight: toWeight(record, quantity),
       gstRate: toNumber(record.gstRate ?? record.gst ?? record.taxRate),
     };
 
-    const parsed = invoiceItemFormSchema.safeParse(candidate);
+    const parsed = quickFillMixItemSchema.safeParse(candidate);
     if (parsed.success) {
       items.push(parsed.data);
       return;
@@ -334,16 +401,23 @@ export function parseQuickFillResponse(raw: string): QuickFillParseResult {
 }
 
 /**
- * GST-inclusive total of a generated set, so the UI can show what the rows
- * actually came to next to what was asked for. Mirrors lib/gst.ts per-line
- * arithmetic; it is a display figure only, never used to adjust the rows.
+ * The total to solve for when the user did not name one.
+ *
+ * The weights are the model's own rough rupee values, so grossing each up by its
+ * slab and rounding to the rupee gives a total that matches the mix it proposed.
+ * That keeps one code path — there is always a target, and the solver always
+ * hits it exactly — rather than a second, unchecked mode where the model prices
+ * the rows itself.
  */
-export function estimateQuickFillTotal(
-  items: readonly InvoiceItemFormValues[],
+export function impliedTargetFromMix(
+  items: readonly QuickFillMixItem[],
 ): number {
-  const total = items.reduce(
-    (sum, item) => sum + item.quantity * item.rate * (1 + item.gstRate / 100),
+  const inclusive = items.reduce(
+    (sum, item) => sum + item.weight * (1 + item.gstRate / 100),
     0,
   );
-  return Math.round(total * 100) / 100;
+  const rounded = Math.round(inclusive);
+  // At least ₹1: a mix of paise-sized weights must still produce a solvable
+  // whole-rupee target rather than 0.
+  return Math.min(MAX_TARGET_AMOUNT, Math.max(1, rounded));
 }

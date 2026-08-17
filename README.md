@@ -24,7 +24,10 @@ Built to the specification in [`docs/spec.md`](docs/spec.md).
   appended and rejected rows are listed with a reason — nothing is dropped
   silently.
 - **Quick Fill (AI)** *(v1.1, optional)* — describe a purchase ("furniture
-  shopping, roughly ₹45,000") and get a drafted set of item rows to explore with.
+  shopping, ₹45,000") and get a drafted set of item rows to explore with. Give it
+  a target and the rows total *exactly* that: the AI only picks the mix of goods
+  and their proportions, and the per-unit rates are solved arithmetically from
+  the target and checked against the app's own GST engine before you see them.
   Every generated row is validated against the same schema a typed row is, and
   anything refused is listed with the reason. Sample data for testing, not
   verified purchase records. Needs `GROQ_API_KEY`; see below.
@@ -136,6 +139,7 @@ lib/
   format.ts           currency, amount in words, GSTIN check — pure
   csv.ts              CSV → items parser — pure
   quick-fill.ts       AI prompt + response validation — pure
+  quick-fill-solver.ts  solves item rates to hit a target exactly — pure
   rate-limit.ts       token bucket for the Quick Fill route — pure
   history.ts          history ordering/filtering — pure
   color.ts            accent presets + contrast helpers

@@ -3,8 +3,9 @@
  *
  * It exists for a single reason: the Groq API key must never reach the browser.
  * Everything else about the app is still client-side; this handler takes a
- * description, asks a model for plausible invoice rows, validates them, and
- * hands back JSON. It stores nothing and reads nothing but the request.
+ * description, asks a model for a plausible item mix, prices that mix so it hits
+ * the requested total exactly, and hands back JSON. It stores nothing and reads
+ * nothing but the request.
  *
  * Order of business, cheapest refusal first:
  *   1. rate limit          — before any parsing, so a flood costs almost nothing
@@ -13,6 +14,9 @@
  *   4. upstream call       — with a timeout, so a hung request cannot hold a
  *                            serverless invocation open until the platform kills it
  *   5. validation          — via lib/quick-fill.ts, which never trusts the model
+ *   6. solve               — via lib/quick-fill-solver.ts, which turns the mix
+ *                            into rates and refuses to return rows it cannot
+ *                            verify against computeInvoice() at the target
  *
  * Every failure path returns a plain sentence in `error`. The raw upstream
  * message is logged server-side and never forwarded: it can carry request ids
@@ -20,13 +24,14 @@
  */
 
 import { quickFillLimiter } from "@/lib/quick-fill-limiter";
+import { solveQuickFillRates } from "@/lib/quick-fill-solver";
 import {
   GROQ_COMPLETIONS_URL,
   MAX_DESCRIPTION_CHARS,
   MAX_TARGET_AMOUNT,
   buildQuickFillRequestBody,
-  estimateQuickFillTotal,
-  parseQuickFillResponse,
+  impliedTargetFromMix,
+  parseQuickFillMix,
   type QuickFillErrorBody,
   type QuickFillResponseBody,
 } from "@/lib/quick-fill";
@@ -99,11 +104,26 @@ export async function POST(request: Request): Promise<Response> {
     if (!Number.isFinite(raw) || raw <= 0) {
       return fail("Enter a target amount greater than 0, or leave it blank.", 400);
     }
+    // A grand total is rounded to the nearest rupee (§6), so a target with paise
+    // in it is not a total any invoice can have — and this route now promises
+    // the target exactly rather than approximately.
+    if (!Number.isInteger(raw)) {
+      return fail(
+        "Use a whole number of rupees — an invoice total is always rounded to the nearest rupee.",
+        400,
+      );
+    }
     if (raw > MAX_TARGET_AMOUNT) {
       return fail("That target amount is too large.", 400);
     }
     targetAmount = raw;
   }
+
+  // The tax branch changes the paise (§6): CGST + SGST rounds half the slab
+  // twice, IGST rounds the whole slab once. The solver has to price for the
+  // branch this invoice is actually on, so the client sends it. Absent means
+  // intra-state, which is what computeInvoice() itself falls back to.
+  const isIntraState = body.isIntraState !== false;
 
   // 3. Configuration -------------------------------------------------------
   const apiKey = process.env.GROQ_API_KEY;
@@ -168,26 +188,42 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 5. Validate ------------------------------------------------------------
-  const result = parseQuickFillResponse(content);
+  const mix = parseQuickFillMix(content);
 
-  if (result.responseError) {
-    console.error("Quick Fill model output rejected:", result.responseError);
+  if (mix.responseError) {
+    console.error("Quick Fill model output rejected:", mix.responseError);
     return fail(
       "The AI returned something we could not read as invoice items. Try rewording the description.",
       502,
     );
   }
 
-  if (result.items.length === 0) {
+  if (mix.items.length === 0) {
     return fail(
       "None of the generated rows were usable. Try rewording the description.",
       502,
     );
   }
 
+  // 6. Solve ---------------------------------------------------------------
+  // With no target of their own, the mix's weights are the model's own rough
+  // rupee values, so they imply one. Either way there is a figure to hit and it
+  // is hit exactly — there is no second, unchecked path where the rows are
+  // whatever the model happened to say.
+  const target = targetAmount ?? impliedTargetFromMix(mix.items);
+  const solved = solveQuickFillRates({
+    items: mix.items,
+    target,
+    isIntraState,
+  });
+
+  // A target these items cannot reach is the user's to fix, not something to
+  // paper over by returning rows that miss it.
+  if (!solved.ok) return fail(solved.error, 400);
+
   return Response.json({
-    items: result.items,
-    rejected: result.rejected,
-    total: estimateQuickFillTotal(result.items),
+    items: solved.items,
+    rejected: mix.rejected,
+    total: solved.total,
   } satisfies QuickFillResponseBody);
 }
