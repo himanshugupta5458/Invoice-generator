@@ -35,7 +35,38 @@ import { invoiceItemFormSchema } from "./validation";
 export const GROQ_COMPLETIONS_URL =
   "https://api.groq.com/openai/v1/chat/completions";
 
-export const QUICK_FILL_MODEL = "llama-3.3-70b-versatile";
+/**
+ * The model Quick Fill asks, and the one place its name appears.
+ *
+ * Groq rotates its hosted lineup and retires models with little ceremony — a
+ * retired name starts answering 404 `model_not_found`, which is how
+ * `llama-3.3-70b-versatile` left. So this is a named default rather than a
+ * literal at the call site, and the route can override it from `GROQ_MODEL`
+ * without a code change at all: see `.env.example`.
+ */
+export const QUICK_FILL_MODEL = "openai/gpt-oss-120b";
+
+/**
+ * Completion-token budget for one generation.
+ *
+ * Sized from a measurement, not a guess, because it is squeezed from both sides.
+ *
+ * Too small truncates the JSON mid-object, and that does not fail loudly — it
+ * surfaces here as "the AI reply was not valid JSON", which reads like the model
+ * misbehaving rather than like a setting being wrong. The default model reasons
+ * before it answers and those reasoning tokens come out of this same budget: a
+ * 12-item reply measured 768 completion tokens, of which roughly 500 was
+ * reasoning and 260 the JSON itself.
+ *
+ * Too large is not free either. Groq's free tier caps tokens *per minute* (8,000
+ * on the tier this was measured on) and reserves `max_tokens` against that cap
+ * whether or not the reply uses it, so an inflated budget buys nothing and costs
+ * the next request in the same minute a 429.
+ *
+ * 2,000 leaves comfortable headroom over the measured 20-item worst case while
+ * keeping one request's reservation to roughly a third of the per-minute cap.
+ */
+export const MAX_COMPLETION_TOKENS = 2000;
 
 /**
  * Upper bound on the free-text description. Long enough for a real sentence or
@@ -74,6 +105,13 @@ export interface QuickFillInput {
    * filesystem and testable without one (§16).
    */
   catalog?: string;
+  /**
+   * Overrides `QUICK_FILL_MODEL`. Comes from `GROQ_MODEL`, read by the route —
+   * this module never touches `process.env` (§16), which is also what lets a
+   * test pin the model without stubbing the environment. Blank or absent means
+   * the default.
+   */
+  model?: string;
 }
 
 /**
@@ -345,11 +383,13 @@ export function buildQuickFillRequestBody(input: QuickFillInput): {
   messages: Array<{ role: "system" | "user"; content: string }>;
 } {
   return {
-    model: QUICK_FILL_MODEL,
+    // A blank env var is the same as an unset one: deploy platforms hand back ""
+    // for a variable somebody created and left empty, and "" is not a model.
+    model: input.model?.trim() || QUICK_FILL_MODEL,
     // Some variety between two runs of the same description is useful for a
     // feature meant for exploring, but not so much that the slabs drift.
     temperature: 0.6,
-    max_tokens: 1500,
+    max_tokens: MAX_COMPLETION_TOKENS,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildQuickFillSystemPrompt(input.catalog) },

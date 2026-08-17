@@ -188,6 +188,30 @@ describe("POST /api/quick-fill — the happy path", () => {
     expect(sent.messages[1].content).toContain("artificial jewellery order");
   });
 
+  it("uses GROQ_MODEL when one is set, so a retirement needs no deploy", async () => {
+    vi.stubEnv("GROQ_MODEL", "llama-4-something-newer");
+    mockGroq(JSON.stringify({ items: ITEMS }));
+
+    await POST(request({ description: "sofa" }));
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sent.model).toBe("llama-4-something-newer");
+  });
+
+  it("falls back to the default when GROQ_MODEL is unset or blank", async () => {
+    mockGroq(JSON.stringify({ items: ITEMS }));
+
+    for (const value of [undefined, ""]) {
+      fetchMock.mockClear();
+      if (value === undefined) vi.stubEnv("GROQ_MODEL", undefined);
+      else vi.stubEnv("GROQ_MODEL", value);
+
+      await POST(request({ description: "sofa" }));
+      const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(sent.model).toBe(QUICK_FILL_MODEL);
+    }
+  });
+
   it("grounds the request in the Indian item catalogue", async () => {
     mockGroq(JSON.stringify({ items: MIXED_ITEMS }));
 
@@ -385,6 +409,42 @@ describe("POST /api/quick-fill — failure paths", () => {
     expect(response.status).toBe(503);
     expect((await response.json()).error).toContain("not configured");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a retired model as a configuration problem, not a passing outage", async () => {
+    // This is how llama-3.3-70b-versatile left: a 404 from an endpoint that was
+    // working the day before. Told to "try again in a moment" the user would
+    // retry forever, so it is a 503 that says the model is gone.
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "The model `some-retired-model` does not exist or you do not have access to it.",
+            code: "model_not_found",
+          },
+        }),
+        { status: 404 },
+      ),
+    );
+
+    const response = await POST(request({ description: "sofa" }));
+    expect(response.status).toBe(503);
+
+    const error = (await response.json()).error;
+    expect(error).toContain("no longer available");
+    expect(error).not.toContain("try again");
+  });
+
+  it("names the model in the log, where whoever has to fix it will look", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("GROQ_MODEL", "some-retired-model");
+    fetchMock.mockResolvedValue(new Response("{}", { status: 404 }));
+
+    await POST(request({ description: "sofa" }));
+
+    const messages = logged.mock.calls.flat().join(" ");
+    expect(messages).toContain("some-retired-model");
+    expect(messages).toContain("GROQ_MODEL");
   });
 
   it("turns an upstream 429 into the same 'try again' message", async () => {

@@ -31,6 +31,7 @@ import {
   GROQ_COMPLETIONS_URL,
   MAX_DESCRIPTION_CHARS,
   MAX_TARGET_AMOUNT,
+  QUICK_FILL_MODEL,
   buildQuickFillRequestBody,
   impliedTargetFromMix,
   parseGstRateFromDescription,
@@ -144,6 +145,12 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // Groq retires hosted models with little ceremony, and a retired name simply
+  // starts answering 404. GROQ_MODEL makes that a config change rather than a
+  // deploy: unset, the default in lib/quick-fill.ts is used. Read here because
+  // lib/quick-fill.ts is contractually free of process.env (§16).
+  const model = process.env.GROQ_MODEL;
+
   // 4. Upstream ------------------------------------------------------------
   let upstream: Response;
   try {
@@ -162,6 +169,7 @@ export async function POST(request: Request): Promise<Response> {
           // catalogue could not be read, which costs authenticity and nothing
           // else.
           catalog: readItemCatalog(),
+          model,
         }),
       ),
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
@@ -187,6 +195,23 @@ export async function POST(request: Request): Promise<Response> {
       return fail(RATE_LIMIT_MESSAGE, 429, {
         "Retry-After": upstream.headers.get("retry-after") ?? "20",
       });
+    }
+
+    // 404 from this endpoint means one thing: the model name is not one Groq
+    // serves any more. That is our configuration, not a passing outage, so it
+    // gets the same treatment as a missing key — a 503 saying so, and the model
+    // name in the log where whoever fixes it will look. Reported as a generic
+    // 502 "try again in a moment" it would invite retrying forever, which is
+    // exactly how the last deprecation presented itself.
+    if (upstream.status === 404) {
+      console.error(
+        `Quick Fill model "${model?.trim() || QUICK_FILL_MODEL}" was refused by Groq (404). ` +
+          "It has probably been retired — set GROQ_MODEL to a current model from https://console.groq.com/docs/models.",
+      );
+      return fail(
+        "Quick Fill's AI model is no longer available on this server. Add items manually or upload a CSV.",
+        503,
+      );
     }
 
     return fail("The AI service had a problem. Try again in a moment.", 502);

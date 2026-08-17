@@ -383,11 +383,12 @@ uses. Leave this marker at the repository boundary:
 
 - Framework preset auto-detects as Next.js; build command `next build`, output default.
 - No environment variables required for v1.
-- **v1.1:** one *optional* environment variable, `GROQ_API_KEY` (§16). Set it in the
-  Vercel project settings to enable Quick Fill; leave it unset and the deployment
-  still builds, deploys, and runs — Quick Fill is the only thing that reports itself
-  unavailable. So the "deploys with zero configuration" property survives: the
-  configuration buys a feature, it is not a precondition for the app.
+- **v1.1:** two *optional* environment variables, both for Quick Fill (§16).
+  `GROQ_API_KEY` enables the feature; leave it unset and the deployment still builds,
+  deploys, and runs — Quick Fill is the only thing that reports itself unavailable.
+  `GROQ_MODEL` overrides which model is asked, for when Groq retires the current
+  default. Neither is required, so the "deploys with zero configuration" property
+  survives: the configuration buys a feature, it is not a precondition for the app.
 - Add a short `README.md`: local dev (`npm i`, `npm run dev`), tests, and "Deploy to Vercel"
   (push to a Git repo and import it, or `vercel` from the CLI).
 
@@ -438,6 +439,9 @@ uses. Leave this marker at the repository boundary:
       alone reports that it is unconfigured.
 - [ ] Empty input is refused before the API is called; the route rate-limits per IP
       and returns a "try again in a moment" message rather than a raw error.
+- [ ] The model name is one constant, overridable by `GROQ_MODEL`, and a model Groq
+      has retired produces a 503 that says so with the name in the log — not a
+      generic 502 the user would retry forever.
 - [ ] Prompt construction, response validation, and the rate limiter are unit
       tested with the network call mocked.
 
@@ -584,8 +588,23 @@ which is what `computeInvoice()` itself falls back to.
 
 ### Stack and structure
 
-- **Groq** (`https://api.groq.com`, OpenAI-compatible), model
-  `llama-3.3-70b-versatile`, JSON mode. Free tier, no card.
+- **Groq** (`https://api.groq.com`, OpenAI-compatible), JSON mode. Free tier, no card.
+- **The model name lives in exactly one constant**, `QUICK_FILL_MODEL` in
+  `lib/quick-fill.ts` — currently `openai/gpt-oss-120b` — and `GROQ_MODEL` overrides
+  it at runtime. Groq rotates its hosted lineup and retires models with little
+  notice: the original default, `llama-3.3-70b-versatile`, now answers 404
+  `model_not_found`. The override makes the next retirement a dashboard change rather
+  than a deploy, and the route turns a **404 into a 503 naming the model in the log**
+  rather than a generic "try again in a moment" that would invite retrying forever.
+  A blank `GROQ_MODEL` means the default, because deploy platforms hand back `""` for
+  a variable somebody created and left empty.
+- **`MAX_COMPLETION_TOKENS` is squeezed from both sides**, so it is sized from a
+  measurement rather than picked. The default model reasons before it answers and
+  those tokens come out of the same budget (a 12-item reply measured 768 completion
+  tokens, ~500 of it reasoning); too small truncates the JSON, which surfaces as "not
+  valid JSON" and reads like the model misbehaving. But the free tier caps tokens *per
+  minute* and reserves `max_tokens` against that cap whether the reply uses it or not,
+  so an inflated budget buys nothing and costs the next request a 429.
 - `app/api/quick-fill/route.ts` — the only server route in the app. Handles one
   request; stores nothing.
 - `lib/quick-fill.ts` — **pure**: prompt construction, response parsing, mix row

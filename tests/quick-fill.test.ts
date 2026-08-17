@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_COMPLETION_TOKENS,
   MAX_GENERATED_ITEMS,
   QUICK_FILL_MODEL,
   QUICK_FILL_SYSTEM_PROMPT,
@@ -108,6 +109,7 @@ describe("buildQuickFillRequestBody", () => {
     });
 
     expect(body.model).toBe(QUICK_FILL_MODEL);
+    expect(body.max_tokens).toBe(MAX_COMPLETION_TOKENS);
     expect(body.response_format).toEqual({ type: "json_object" });
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0]).toEqual({
@@ -116,6 +118,40 @@ describe("buildQuickFillRequestBody", () => {
     });
     expect(body.messages[1].role).toBe("user");
     expect(body.messages[1].content).toContain("furniture shopping");
+  });
+
+  it("defaults to a model Groq still serves", () => {
+    // llama-3.3-70b-versatile was the original default and now answers 404
+    // model_not_found. This is the guard against shipping a retired name again.
+    expect(QUICK_FILL_MODEL).toBe("openai/gpt-oss-120b");
+    expect(QUICK_FILL_MODEL).not.toBe("llama-3.3-70b-versatile");
+  });
+
+  it("lets the caller override the model, for when this one is retired too", () => {
+    const body = buildQuickFillRequestBody({
+      description: "furniture shopping",
+      model: "llama-4-something-newer",
+    });
+    expect(body.model).toBe("llama-4-something-newer");
+  });
+
+  it("treats a blank override as no override", () => {
+    // Deploy platforms hand back "" for a variable somebody created and left
+    // empty, and "" is not a model — it would 404 every request.
+    for (const model of [undefined, "", "   "]) {
+      expect(
+        buildQuickFillRequestBody({ description: "sofa", model }).model,
+      ).toBe(QUICK_FILL_MODEL);
+    }
+  });
+
+  it("budgets enough completion tokens for the model's reasoning", () => {
+    // Measured against the live API: a 12-item reply spends ~768 completion
+    // tokens, roughly 500 of it reasoning. Too small truncates the JSON and
+    // surfaces as "not valid JSON"; too large is reserved against the free
+    // tier's per-minute cap and buys a 429 instead. See the constant's comment.
+    expect(MAX_COMPLETION_TOKENS).toBeGreaterThanOrEqual(1500);
+    expect(MAX_COMPLETION_TOKENS).toBeLessThanOrEqual(3000);
   });
 });
 

@@ -114,6 +114,12 @@ No database, no build configuration, and no *required* environment variables.
 Add `GROQ_API_KEY` in the project's environment settings if you want Quick Fill;
 the deployment builds and runs without it.
 
+If Quick Fill starts reporting that its model is unavailable, Groq has retired the
+one it defaults to — it happened once already. Set `GROQ_MODEL` to a current model
+from [Groq's model list](https://console.groq.com/docs/models); no code change or
+redeploy of the app itself is needed. The server log names the model that was
+refused.
+
 **From the dashboard:** push this repository to GitHub/GitLab/Bitbucket, then
 [import it into Vercel](https://vercel.com/new). The Next.js preset is detected
 automatically (build `next build`, default output).
@@ -164,7 +170,8 @@ the money maths stays trivially testable.
 
 Next.js (App Router) + TypeScript · Tailwind CSS · React Hook Form + Zod ·
 `@react-pdf/renderer` · Zustand · Vitest. Quick Fill (v1.1) calls Groq
-(`llama-3.3-70b-versatile`) from one serverless route.
+(`openai/gpt-oss-120b` by default, overridable with `GROQ_MODEL`) from one
+serverless route.
 
 ## Not in v1
 
