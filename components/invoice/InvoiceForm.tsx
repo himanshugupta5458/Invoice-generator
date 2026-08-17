@@ -11,6 +11,7 @@ import type { InvoicePdfProps } from "@/components/invoice/InvoicePdf";
 import { EMPTY_ITEM, ItemsTable } from "@/components/invoice/ItemsTable";
 import { InvoicePreview } from "@/components/invoice/InvoicePreview";
 import { ShipToSection } from "@/components/invoice/ShipToSection";
+import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card, EmptyState, SectionCard } from "@/components/ui/Card";
 import {
@@ -563,9 +564,7 @@ export function InvoiceForm() {
               <h2 className="text-sm font-semibold tracking-tight text-ink-900">
                 Totals
               </h2>
-              <span className="rounded-full bg-ink-100 px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-600">
-                {computed.isIntraState ? "CGST + SGST" : "IGST"}
-              </span>
+              <Badge>{computed.isIntraState ? "CGST + SGST" : "IGST"}</Badge>
             </div>
 
             <p className="px-5 pt-4 text-xs leading-relaxed text-ink-500">

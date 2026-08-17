@@ -48,15 +48,15 @@ export function SettingsTabs() {
   }
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       {/* The three labels are wider than a phone screen, so the strip scrolls
           rather than pushing the page into horizontal overflow. w-max/min-w-full
           keeps the underline rule spanning the full width on a desktop. */}
-      <div className="overflow-x-auto">
+      <div className="-mb-1 overflow-x-auto pb-1">
         <div
           role="tablist"
           aria-label="Settings sections"
-          className="flex w-max min-w-full gap-1 border-b border-stone-200"
+          className="flex w-max min-w-full gap-1 border-b border-ink-200"
         >
           {TABS.map((entry, index) => {
             const active = tab === entry.id;
@@ -75,11 +75,11 @@ export function SettingsTabs() {
                 onClick={() => setTab(entry.id)}
                 onKeyDown={(event) => handleTabKeyDown(event, index)}
                 className={cn(
-                  "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors motion-reduce:transition-none",
-                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900",
+                  "focus-ring -mb-px whitespace-nowrap rounded-t-md border-b-2 px-3 pb-2.5 pt-1.5 text-sm",
+                  "transition-colors motion-reduce:transition-none",
                   active
-                    ? "border-stone-900 font-medium text-stone-900"
-                    : "border-transparent text-stone-500 hover:text-stone-900",
+                    ? "border-brand-600 font-semibold text-brand-700"
+                    : "border-transparent font-medium text-ink-500 hover:border-ink-300 hover:text-ink-900",
                 )}
               >
                 {entry.label}
@@ -99,6 +99,6 @@ export function SettingsTabs() {
         {tab === "buyers" && <BuyersPanel />}
         {tab === "data" && <DataPanel />}
       </div>
-    </>
+    </div>
   );
 }

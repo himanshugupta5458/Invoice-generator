@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { BusinessProfileForm } from "@/components/settings/BusinessProfileForm";
 import { Button } from "@/components/ui/Button";
+import { EmptyState, PanelLoading, SectionCard } from "@/components/ui/Card";
+import { ReceiptIcon } from "@/components/ui/icons";
 import { readableTextOn, resolveAccent } from "@/lib/color";
 import { createId } from "@/lib/repository";
 import { useHydratedStore, useInvoiceStore } from "@/lib/store";
@@ -54,40 +56,51 @@ export function ProfilesPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold text-stone-900">
-            Business profiles
-          </h2>
-          <p className="text-sm text-stone-500">
-            The seller details, numbering, and theme used on your invoices.
-          </p>
-        </div>
+    <SectionCard
+      title="Business profiles"
+      description="The seller details, numbering, and theme used on your invoices."
+      actions={
         <Button variant="primary" onClick={() => setMode({ kind: "new" })}>
           Add profile
         </Button>
-      </div>
-
+      }
+      // The rows carry their own padding so their dividers reach the card's
+      // edges — a list of separate floating cards reads as separate things,
+      // and these are one set.
+      bare
+    >
       {!hydrated ? (
-        <p className="text-sm text-stone-500">Loading…</p>
+        <PanelLoading />
       ) : profiles.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-stone-300 bg-white px-4 py-8 text-center text-sm text-stone-500">
-          No business profiles yet — add one to start creating invoices.
-        </p>
+        <div className="px-5 sm:px-6">
+          <EmptyState
+            bordered={false}
+            icon={<ReceiptIcon className="size-6" />}
+            title="No business profiles yet"
+            description="A profile holds the seller details, GSTIN, numbering and accent colour that go on every invoice you issue from it."
+            action={
+              <Button variant="primary" onClick={() => setMode({ kind: "new" })}>
+                Add your first profile
+              </Button>
+            }
+          />
+        </div>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="divide-y divide-ink-100">
           {profiles.map((profile) => {
             const accent = resolveAccent(profile.accentColor);
             return (
               <li
                 key={profile.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-stone-200 bg-white p-4"
+                className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 py-4 sm:px-6"
               >
-                <div className="flex min-w-0 items-start gap-3">
+                <div className="flex min-w-0 items-start gap-3.5">
+                  {/* This one swatch is the profile's *invoice* accent, not app
+                      chrome — it is how you tell two profiles apart in a list,
+                      so it stays on the document's colour system. */}
                   <span
                     aria-hidden="true"
-                    className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                    className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg text-xs font-semibold"
                     style={{
                       backgroundColor: accent,
                       color: readableTextOn(accent),
@@ -96,16 +109,17 @@ export function ProfilesPanel() {
                     {profile.name.slice(0, 2).toUpperCase()}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-stone-900">
+                    <p className="truncate text-sm font-semibold text-ink-900">
                       {profile.name}
                     </p>
-                    <p className="mt-0.5 text-sm text-stone-600">
+                    <p className="mt-1 truncate text-sm text-ink-600">
                       <span className="font-mono">{profile.gstin}</span>
-                      {profile.state && ` · ${profile.state} (${profile.stateCode})`}
+                      {profile.state &&
+                        ` · ${profile.state} (${profile.stateCode})`}
                     </p>
-                    <p className="mt-0.5 text-xs text-stone-500">
+                    <p className="mt-1 text-xs text-ink-500">
                       Next invoice:{" "}
-                      <span className="font-mono">
+                      <span className="font-mono text-ink-700">
                         {profile.invoicePrefix}
                         {profile.nextInvoiceNumber}
                       </span>
@@ -113,7 +127,7 @@ export function ProfilesPanel() {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   <Button
                     size="sm"
                     onClick={() => setMode({ kind: "edit", id: profile.id })}
@@ -133,6 +147,6 @@ export function ProfilesPanel() {
           })}
         </ul>
       )}
-    </div>
+    </SectionCard>
   );
 }

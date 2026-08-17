@@ -22,6 +22,11 @@ export interface ColorPickerProps {
  * colour picker, and a free hex input. The preview band shows the colour with
  * the text colour the invoice will actually use, so an unreadable choice is
  * visible before it reaches a PDF.
+ *
+ * The colours *inside* this control belong to the invoice document, not to the
+ * app: the swatches and the band are the profile's own accent. Only the
+ * selection affordance around a swatch — the ring — is app chrome, and it is on
+ * the brand colour so it stays legible whichever accent sits under it.
  */
 export function ColorPicker({
   value,
@@ -41,8 +46,8 @@ export function ColorPicker({
   const lowContrast = bandContrast < 4.5;
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-3.5">
+      <div className="flex flex-wrap gap-2.5">
         {ACCENT_PRESETS.map((preset) => {
           const selected = normalized === preset.hex;
           return (
@@ -53,11 +58,10 @@ export function ColorPicker({
               aria-pressed={selected}
               title={preset.name}
               className={cn(
-                "size-8 rounded-full border transition-transform motion-reduce:transition-none",
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900",
+                "focus-ring size-9 rounded-full border transition-transform motion-reduce:transition-none",
                 selected
-                  ? "border-stone-900 ring-2 ring-stone-900 ring-offset-2"
-                  : "border-stone-300 hover:scale-105",
+                  ? "border-white ring-2 ring-brand-600 ring-offset-2"
+                  : "border-ink-300 hover:scale-105",
               )}
               style={{ backgroundColor: preset.hex }}
             >
@@ -73,7 +77,7 @@ export function ColorPicker({
           value={swatchValue}
           onChange={(event) => onChange(event.target.value)}
           aria-label="Custom accent colour"
-          className="h-9 w-12 cursor-pointer rounded-md border border-stone-300 bg-white p-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
+          className="focus-ring h-10 w-14 cursor-pointer rounded-lg border border-ink-300 bg-white p-1"
         />
         <TextInput
           id={id}
@@ -87,14 +91,14 @@ export function ColorPicker({
       </div>
 
       <div
-        className="rounded-md px-3 py-2 text-sm font-medium"
+        className="rounded-lg px-4 py-2.5 text-sm font-semibold"
         style={{ backgroundColor: swatchValue, color: textColor }}
       >
         Invoice heading &amp; totals band
       </div>
 
       {lowContrast && (
-        <p className="text-xs text-amber-700">
+        <p className="text-xs leading-relaxed text-amber-700">
           This colour gives {bandContrast.toFixed(1)}:1 contrast against the band
           text — below the 4.5:1 that reads reliably in print. A darker or
           lighter shade of the same hue will look sharper.

@@ -125,12 +125,30 @@ export function PageHeader({ title, description, actions }: PageHeaderProps) {
   );
 }
 
+/**
+ * Shown while the store rehydrates from `localStorage`. One component so the
+ * three panels that wait on it say the same thing in the same place, rather
+ * than each dropping a differently-styled "Loading…" wherever it happened to be.
+ */
+export function PanelLoading({ label = "Loading…" }: { label?: string }) {
+  return (
+    <p role="status" className="px-5 py-8 text-center text-sm text-ink-500 sm:px-6">
+      {label}
+    </p>
+  );
+}
+
 export interface EmptyStateProps {
   title: string;
   description: ReactNode;
   /** The one thing to do next — an empty state should direct, not decorate (§9). */
   action?: ReactNode;
   icon?: ReactNode;
+  /**
+   * The dashed outline that marks out a placeholder region. Turn it off when
+   * this already sits inside a card, where it would only draw a box in a box.
+   */
+  bordered?: boolean;
 }
 
 export function EmptyState({
@@ -138,9 +156,15 @@ export function EmptyState({
   description,
   action,
   icon,
+  bordered = true,
 }: EmptyStateProps) {
   return (
-    <div className="rounded-xl border border-dashed border-ink-300 bg-white px-6 py-12 text-center">
+    <div
+      className={cn(
+        "px-6 py-12 text-center",
+        bordered && "rounded-xl border border-dashed border-ink-300 bg-white",
+      )}
+    >
       {icon && (
         <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
           {icon}

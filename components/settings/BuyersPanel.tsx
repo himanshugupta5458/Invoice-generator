@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { BuyerForm } from "@/components/settings/BuyerForm";
 import { Button } from "@/components/ui/Button";
+import { EmptyState, PanelLoading, SectionCard } from "@/components/ui/Card";
 import { TextInput } from "@/components/ui/Field";
 import { createId } from "@/lib/repository";
 import { useHydratedStore, useInvoiceStore } from "@/lib/store";
@@ -65,53 +66,62 @@ export function BuyersPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold text-stone-900">Buyers</h2>
-          <p className="text-sm text-stone-500">
-            Saved customers you can pick when creating an invoice.
-          </p>
-        </div>
+    <SectionCard
+      title="Buyers"
+      description="Saved customers you can pick when creating an invoice."
+      actions={
         <Button variant="primary" onClick={() => setMode({ kind: "new" })}>
           Add buyer
         </Button>
-      </div>
-
+      }
+      bare
+    >
+      {/* The search belongs to the list, so it sits in its own band above the
+          rows rather than floating above the whole card. */}
       {buyers.length > 0 && (
-        <TextInput
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search buyers by name, state, or GSTIN"
-          aria-label="Search buyers"
-          className="max-w-sm"
-        />
+        <div className="border-b border-ink-100 px-5 py-3 sm:px-6">
+          <TextInput
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search buyers by name, state, or GSTIN"
+            aria-label="Search buyers"
+            className="sm:max-w-sm"
+          />
+        </div>
       )}
 
       {!hydrated ? (
-        <p className="text-sm text-stone-500">Loading…</p>
+        <PanelLoading />
       ) : buyers.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-stone-300 bg-white px-4 py-8 text-center text-sm text-stone-500">
-          No buyers saved yet — add one here, or save a buyer while creating an
-          invoice.
-        </p>
+        <div className="px-5 sm:px-6">
+          <EmptyState
+            bordered={false}
+            title="No buyers saved yet"
+            description="Add one here, or tick “Save this buyer for next time” while creating an invoice."
+            action={
+              <Button variant="primary" onClick={() => setMode({ kind: "new" })}>
+                Add your first buyer
+              </Button>
+            }
+          />
+        </div>
       ) : visible.length === 0 ? (
-        <p className="text-sm text-stone-500">
+        <p className="px-5 py-8 text-center text-sm text-ink-500 sm:px-6">
           No buyers match “{query}”.
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="divide-y divide-ink-100">
           {visible.map((buyer) => (
             <li
               key={buyer.id}
-              className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-stone-200 bg-white p-4"
+              className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 py-4 sm:px-6"
             >
               <div className="min-w-0">
-                <p className="truncate font-medium text-stone-900">
+                <p className="truncate text-sm font-semibold text-ink-900">
                   {buyer.name}
                 </p>
-                <p className="mt-0.5 text-sm text-stone-600">
+                <p className="mt-1 truncate text-sm text-ink-600">
                   {buyer.state} ({buyer.stateCode})
                   {buyer.gstin && (
                     <>
@@ -120,12 +130,12 @@ export function BuyersPanel() {
                     </>
                   )}
                 </p>
-                <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">
+                <p className="mt-1 line-clamp-2 text-xs text-ink-500">
                   {buyer.address}
                 </p>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex shrink-0 gap-2">
                 <Button
                   size="sm"
                   onClick={() => setMode({ kind: "edit", id: buyer.id })}
@@ -144,6 +154,6 @@ export function BuyersPanel() {
           ))}
         </ul>
       )}
-    </div>
+    </SectionCard>
   );
 }

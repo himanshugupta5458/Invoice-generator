@@ -4,7 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 
 import { Button } from "@/components/ui/Button";
-import { Field, TextArea, TextInput } from "@/components/ui/Field";
+import { SectionCard } from "@/components/ui/Card";
+import { ADDRESS_GRID, Field, TextArea, TextInput } from "@/components/ui/Field";
 import type { SavedBuyer } from "@/lib/types";
 import {
   buyerFormSchema,
@@ -58,92 +59,105 @@ export function BuyerForm({
   const disabled = busy || isSubmitting;
 
   return (
-    <form
-      onSubmit={handleSubmit(onSubmit)}
-      className="flex flex-col gap-4 rounded-lg border border-stone-200 bg-white p-4 sm:p-6"
-      noValidate
-    >
-      <div>
-        <h3 className="text-base font-semibold text-stone-900">
-          {buyer ? "Edit buyer" : "New buyer"}
-        </h3>
-        <p className="mt-0.5 text-sm text-stone-500">
-          Saved buyers can be picked on an invoice. Editing one here never
-          changes an invoice that has already been issued.
-        </p>
-      </div>
+    <form onSubmit={handleSubmit(onSubmit)} noValidate>
+      <SectionCard
+        title={buyer ? "Edit buyer" : "New buyer"}
+        description="Saved buyers can be picked on an invoice. Editing one here never changes an invoice that has already been issued."
+        // The actions live in the card's footer band so "Save" and "Cancel" sit
+        // on the edge of the thing they act on, in the same place on every form.
+        footer={
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" variant="primary" disabled={disabled}>
+              {buyer ? "Save changes" : "Add buyer"}
+            </Button>
+            <Button onClick={onCancel} disabled={disabled}>
+              Cancel
+            </Button>
+          </div>
+        }
+      >
+        {/* The same six-column grid the invoice builder's Bill To uses, so the
+            two ways of entering a buyer are visibly the same form. */}
+        <div className={ADDRESS_GRID}>
+          <Field
+            label="Buyer name"
+            required
+            error={errors.name?.message}
+            className="sm:col-span-4"
+          >
+            {(ids) => <TextInput {...ids} {...register("name")} />}
+          </Field>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Buyer name" required error={errors.name?.message}>
-          {(ids) => <TextInput {...ids} {...register("name")} />}
-        </Field>
+          <Field
+            label="Phone"
+            error={errors.phone?.message}
+            className="sm:col-span-2"
+          >
+            {(ids) => (
+              <TextInput {...ids} inputMode="tel" {...register("phone")} />
+            )}
+          </Field>
 
-        <Field label="Phone" error={errors.phone?.message}>
-          {(ids) => <TextInput {...ids} inputMode="tel" {...register("phone")} />}
-        </Field>
+          <Field
+            label="Address"
+            required
+            error={errors.address?.message}
+            className="sm:col-span-6"
+          >
+            {(ids) => <TextArea {...ids} rows={2} {...register("address")} />}
+          </Field>
 
-        <Field
-          label="Address"
-          required
-          error={errors.address?.message}
-          className="sm:col-span-2"
-        >
-          {(ids) => <TextArea {...ids} rows={2} {...register("address")} />}
-        </Field>
+          <Field
+            label="State"
+            required
+            error={errors.state?.message}
+            className="sm:col-span-4"
+          >
+            {(ids) => <TextInput {...ids} {...register("state")} />}
+          </Field>
 
-        <Field label="State" required error={errors.state?.message}>
-          {(ids) => <TextInput {...ids} {...register("state")} />}
-        </Field>
+          <Field
+            label="State code"
+            required
+            error={errors.stateCode?.message}
+            hint="Decides CGST + SGST vs IGST on the invoice."
+            className="sm:col-span-2"
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                inputMode="numeric"
+                maxLength={2}
+                placeholder="27"
+                {...register("stateCode")}
+              />
+            )}
+          </Field>
 
-        <Field
-          label="State code"
-          required
-          error={errors.stateCode?.message}
-          hint="Decides CGST + SGST vs IGST on the invoice."
-        >
-          {(ids) => (
-            <TextInput
-              {...ids}
-              inputMode="numeric"
-              maxLength={2}
-              placeholder="27"
-              {...register("stateCode")}
-            />
-          )}
-        </Field>
-
-        <Field
-          label="GSTIN"
-          error={errors.gstin?.message}
-          className="sm:col-span-2"
-          hint="Optional — leave blank for an unregistered buyer."
-          warning={
-            stateMismatch
-              ? `This GSTIN starts with ${gstin?.trim().slice(0, 2)} but the state code is ${stateCode?.trim()} — check they match.`
-              : undefined
-          }
-        >
-          {(ids) => (
-            <TextInput
-              {...ids}
-              placeholder="27ABCDE1234F1Z5"
-              maxLength={15}
-              spellCheck={false}
-              className="font-mono uppercase"
-              {...register("gstin")}
-            />
-          )}
-        </Field>
-      </div>
-
-      <div className="flex flex-wrap gap-2 border-t border-stone-200 pt-4">
-        <Button type="submit" variant="primary" disabled={disabled}>
-          {buyer ? "Save changes" : "Add buyer"}
-        </Button>
-        <Button onClick={onCancel} disabled={disabled}>
-          Cancel
-        </Button>
-      </div>
+          <Field
+            label="GSTIN"
+            error={errors.gstin?.message}
+            className="sm:col-span-6"
+            hint="Optional — leave blank for an unregistered buyer."
+            warning={
+              stateMismatch
+                ? `This GSTIN starts with ${gstin?.trim().slice(0, 2)} but the state code is ${stateCode?.trim()} — check they match.`
+                : undefined
+            }
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                placeholder="27ABCDE1234F1Z5"
+                maxLength={15}
+                spellCheck={false}
+                className="font-mono uppercase"
+                {...register("gstin")}
+              />
+            )}
+          </Field>
+        </div>
+      </SectionCard>
     </form>
   );
 }

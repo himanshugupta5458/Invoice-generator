@@ -14,6 +14,7 @@ import {
   QuickFillPanel,
   useQuickFill,
 } from "@/components/invoice/QuickFillButton";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/Card";
 import { Select, TextInput } from "@/components/ui/Field";
@@ -198,9 +199,9 @@ export function ItemsTable({
       title="Items"
       description="Rate is per unit, before tax."
       actions={
-        <span className="rounded-full bg-ink-100 px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-600">
+        <Badge>
           {fields.length} {fields.length === 1 ? "item" : "items"}
-        </span>
+        </Badge>
       }
       footer={
         <div className="flex flex-col gap-3">

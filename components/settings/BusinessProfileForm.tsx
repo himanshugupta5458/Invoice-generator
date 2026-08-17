@@ -6,7 +6,8 @@ import { useForm, useWatch } from "react-hook-form";
 
 import { ColorPicker } from "@/components/settings/ColorPicker";
 import { Button } from "@/components/ui/Button";
-import { Field, TextArea, TextInput } from "@/components/ui/Field";
+import { Card, SectionCard } from "@/components/ui/Card";
+import { ADDRESS_GRID, Field, TextArea, TextInput } from "@/components/ui/Field";
 import { DEFAULT_ACCENT } from "@/lib/color";
 import type { BusinessProfile } from "@/lib/types";
 import {
@@ -57,6 +58,16 @@ export interface BusinessProfileFormProps {
   busy?: boolean;
 }
 
+/**
+ * The longest form in the app, so it is the one that most needs breaking up.
+ *
+ * Four cards rather than one card of four `<fieldset>`s: the groups here are
+ * genuinely different subjects — who you are, how you get paid, how invoices are
+ * numbered and branded, and what the small print says — and a single scroll of
+ * twenty inputs gives no sense of how much is left. The `<fieldset>` grouping
+ * stays inside each card for assistive technology, with its legend hidden
+ * because the card's own heading already says the same thing on screen.
+ */
 export function BusinessProfileForm({
   profile,
   onSubmit,
@@ -107,248 +118,320 @@ export function BusinessProfileForm({
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
-      className="flex flex-col gap-6 rounded-lg border border-stone-200 bg-white p-4 sm:p-6"
+      className="flex flex-col gap-6"
       noValidate
     >
+      {/* An `h2`, not a PageHeader: the page this replaces still owns the `h1`
+          ("Settings"), and a second one would leave the document with two. */}
       <div>
-        <h3 className="text-base font-semibold text-stone-900">
+        <h2 className="text-xl font-semibold tracking-tight text-ink-900">
           {profile ? "Edit business profile" : "New business profile"}
-        </h3>
-        <p className="mt-0.5 text-sm text-stone-500">
+        </h2>
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-500">
           These details appear on every invoice issued from this profile.
         </p>
       </div>
 
-      <fieldset className="grid gap-4 sm:grid-cols-2">
-        <legend className="sr-only">Business details</legend>
-
-        <Field label="Business name" required error={errors.name?.message}>
-          {(ids) => <TextInput {...ids} {...register("name")} />}
-        </Field>
-
-        <Field label="Phone" error={errors.phone?.message}>
-          {(ids) => <TextInput {...ids} inputMode="tel" {...register("phone")} />}
-        </Field>
-
-        <Field
-          label="Address"
-          required
-          error={errors.address?.message}
-          className="sm:col-span-2"
-        >
-          {(ids) => <TextArea {...ids} rows={2} {...register("address")} />}
-        </Field>
-
-        <Field label="City" error={errors.city?.message}>
-          {(ids) => <TextInput {...ids} {...register("city")} />}
-        </Field>
-
-        <Field label="Email" error={errors.email?.message}>
-          {(ids) => (
-            <TextInput {...ids} inputMode="email" {...register("email")} />
-          )}
-        </Field>
-
-        <Field label="State" required error={errors.state?.message}>
-          {(ids) => <TextInput {...ids} {...register("state")} />}
-        </Field>
-
-        <Field
-          label="State code"
-          required
-          error={errors.stateCode?.message}
-          hint="2 digits, e.g. 27 for Maharashtra."
-        >
-          {(ids) => (
-            <TextInput
-              {...ids}
-              inputMode="numeric"
-              maxLength={2}
-              placeholder="27"
-              {...register("stateCode")}
-            />
-          )}
-        </Field>
-
-        <Field
-          label="GSTIN"
-          required
-          error={errors.gstin?.message}
-          className="sm:col-span-2"
-          warning={
-            stateMismatch
-              ? `This GSTIN starts with ${gstin.trim().slice(0, 2)} but the state code is ${stateCode.trim()} — check they match.`
-              : undefined
-          }
-        >
-          {(ids) => (
-            <TextInput
-              {...ids}
-              placeholder="27ABCDE1234F1Z5"
-              maxLength={15}
-              spellCheck={false}
-              className="font-mono uppercase"
-              {...register("gstin")}
-            />
-          )}
-        </Field>
-      </fieldset>
-
-      <fieldset className="grid gap-4 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold text-stone-900">
-          Bank &amp; payment details
-        </legend>
-
-        <Field label="Account name" error={errors.bank?.accountName?.message}>
-          {(ids) => <TextInput {...ids} {...register("bank.accountName")} />}
-        </Field>
-
-        <Field label="Account number" error={errors.bank?.accountNo?.message}>
-          {(ids) => (
-            <TextInput {...ids} inputMode="numeric" {...register("bank.accountNo")} />
-          )}
-        </Field>
-
-        <Field label="IFSC" error={errors.bank?.ifsc?.message}>
-          {(ids) => (
-            <TextInput
-              {...ids}
-              spellCheck={false}
-              className="font-mono uppercase"
-              {...register("bank.ifsc")}
-            />
-          )}
-        </Field>
-
-        <Field label="Bank name" error={errors.bank?.bankName?.message}>
-          {(ids) => <TextInput {...ids} {...register("bank.bankName")} />}
-        </Field>
-
-        <Field
-          label="UPI ID"
-          error={errors.bank?.upi?.message}
-          className="sm:col-span-2"
-        >
-          {(ids) => <TextInput {...ids} spellCheck={false} {...register("bank.upi")} />}
-        </Field>
-      </fieldset>
-
-      <fieldset className="grid gap-4 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold text-stone-900">
-          Invoice numbering &amp; branding
-        </legend>
-
-        <Field
-          label="Invoice prefix"
-          required
-          error={errors.invoicePrefix?.message}
-          hint="Prepended to the running number, e.g. SC/2026/"
-        >
-          {(ids) => (
-            <TextInput
-              {...ids}
-              placeholder="SC/2026/"
-              spellCheck={false}
-              className="font-mono"
-              {...register("invoicePrefix")}
-            />
-          )}
-        </Field>
-
-        <Field
-          label="Next invoice number"
-          required
-          error={errors.nextInvoiceNumber?.message}
-          hint="Increments automatically when an invoice is saved."
-        >
-          {(ids) => (
-            <TextInput
-              {...ids}
-              type="number"
-              min={1}
-              step={1}
-              {...register("nextInvoiceNumber", { valueAsNumber: true })}
-            />
-          )}
-        </Field>
-
-        <Field
-          label="Accent colour"
-          error={errors.accentColor?.message}
-          className="sm:col-span-2"
-          hint="Used for the invoice heading, table header, and totals band."
-        >
-          {(ids) => (
-            <ColorPicker
-              id={ids.id}
-              aria-describedby={ids["aria-describedby"]}
-              value={accentColor}
-              onChange={(hex) =>
-                setValue("accentColor", hex, {
-                  shouldDirty: true,
-                  shouldValidate: true,
-                })
-              }
-            />
-          )}
-        </Field>
-
-        <Field
-          label="Logo"
-          error={logoError ?? undefined}
-          className="sm:col-span-2"
-          hint="Optional. PNG or JPG under 200 KB."
-        >
-          {(ids) => (
-            <div className="flex flex-wrap items-center gap-3">
-              {logoDataUrl && (
-                // A user-supplied data URL — next/image adds nothing here.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={logoDataUrl}
-                  alt="Current logo"
-                  className="h-12 w-auto rounded border border-stone-200 bg-white object-contain p-1"
-                />
-              )}
-              <input
-                {...ids}
-                type="file"
-                accept="image/png,image/jpeg,image/svg+xml"
-                onChange={(event) => void handleLogo(event.target.files?.[0])}
-                className="rounded-md text-sm text-stone-600 file:mr-3 file:rounded-md file:border file:border-stone-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
-              />
-              {logoDataUrl && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() =>
-                    setValue("logoDataUrl", undefined, { shouldDirty: true })
-                  }
-                >
-                  Remove
-                </Button>
-              )}
-            </div>
-          )}
-        </Field>
-      </fieldset>
-
-      <Field
-        label="Default terms & conditions"
-        error={errors.termsAndConditions?.message}
-        hint="Used on every invoice from this profile. This is the only place it can be edited."
+      <SectionCard
+        title="Business details"
+        description="The seller block printed at the top of the invoice."
       >
-        {(ids) => <TextArea {...ids} rows={5} {...register("termsAndConditions")} />}
-      </Field>
+        <fieldset className={ADDRESS_GRID}>
+          <legend className="sr-only">Business details</legend>
 
-      <div className="flex flex-wrap gap-2 border-t border-stone-200 pt-4">
-        <Button type="submit" variant="primary" disabled={disabled}>
-          {profile ? "Save changes" : "Create profile"}
-        </Button>
-        <Button onClick={onCancel} disabled={disabled}>
-          Cancel
-        </Button>
-      </div>
+          <Field
+            label="Business name"
+            required
+            error={errors.name?.message}
+            className="sm:col-span-4"
+          >
+            {(ids) => <TextInput {...ids} {...register("name")} />}
+          </Field>
+
+          <Field
+            label="Phone"
+            error={errors.phone?.message}
+            className="sm:col-span-2"
+          >
+            {(ids) => (
+              <TextInput {...ids} inputMode="tel" {...register("phone")} />
+            )}
+          </Field>
+
+          <Field
+            label="Address"
+            required
+            error={errors.address?.message}
+            className="sm:col-span-6"
+          >
+            {(ids) => <TextArea {...ids} rows={2} {...register("address")} />}
+          </Field>
+
+          <Field
+            label="City"
+            error={errors.city?.message}
+            className="sm:col-span-3"
+          >
+            {(ids) => <TextInput {...ids} {...register("city")} />}
+          </Field>
+
+          <Field
+            label="Email"
+            error={errors.email?.message}
+            className="sm:col-span-3"
+          >
+            {(ids) => (
+              <TextInput {...ids} inputMode="email" {...register("email")} />
+            )}
+          </Field>
+
+          <Field
+            label="State"
+            required
+            error={errors.state?.message}
+            className="sm:col-span-4"
+          >
+            {(ids) => <TextInput {...ids} {...register("state")} />}
+          </Field>
+
+          <Field
+            label="State code"
+            required
+            error={errors.stateCode?.message}
+            hint="2 digits, e.g. 27 for Maharashtra."
+            className="sm:col-span-2"
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                inputMode="numeric"
+                maxLength={2}
+                placeholder="27"
+                {...register("stateCode")}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="GSTIN"
+            required
+            error={errors.gstin?.message}
+            className="sm:col-span-6"
+            warning={
+              stateMismatch
+                ? `This GSTIN starts with ${gstin.trim().slice(0, 2)} but the state code is ${stateCode.trim()} — check they match.`
+                : undefined
+            }
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                placeholder="27ABCDE1234F1Z5"
+                maxLength={15}
+                spellCheck={false}
+                className="font-mono uppercase"
+                {...register("gstin")}
+              />
+            )}
+          </Field>
+        </fieldset>
+      </SectionCard>
+
+      <SectionCard
+        title="Bank & payment details"
+        description="Printed at the foot of the invoice so the buyer can pay you. All optional."
+      >
+        <fieldset className={ADDRESS_GRID}>
+          <legend className="sr-only">Bank and payment details</legend>
+
+          <Field
+            label="Account name"
+            error={errors.bank?.accountName?.message}
+            className="sm:col-span-3"
+          >
+            {(ids) => <TextInput {...ids} {...register("bank.accountName")} />}
+          </Field>
+
+          <Field
+            label="Account number"
+            error={errors.bank?.accountNo?.message}
+            className="sm:col-span-3"
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                inputMode="numeric"
+                className="font-mono"
+                {...register("bank.accountNo")}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="IFSC"
+            error={errors.bank?.ifsc?.message}
+            className="sm:col-span-3"
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                spellCheck={false}
+                className="font-mono uppercase"
+                {...register("bank.ifsc")}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="Bank name"
+            error={errors.bank?.bankName?.message}
+            className="sm:col-span-3"
+          >
+            {(ids) => <TextInput {...ids} {...register("bank.bankName")} />}
+          </Field>
+
+          <Field
+            label="UPI ID"
+            error={errors.bank?.upi?.message}
+            className="sm:col-span-6"
+          >
+            {(ids) => (
+              <TextInput {...ids} spellCheck={false} {...register("bank.upi")} />
+            )}
+          </Field>
+        </fieldset>
+      </SectionCard>
+
+      <SectionCard
+        title="Invoice numbering & branding"
+        description="How invoices from this profile are numbered, and the colour they carry."
+      >
+        <fieldset className={ADDRESS_GRID}>
+          <legend className="sr-only">Invoice numbering and branding</legend>
+
+          <Field
+            label="Invoice prefix"
+            required
+            error={errors.invoicePrefix?.message}
+            hint="Prepended to the running number, e.g. SC/2026/"
+            className="sm:col-span-3"
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                placeholder="SC/2026/"
+                spellCheck={false}
+                className="font-mono"
+                {...register("invoicePrefix")}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="Next invoice number"
+            required
+            error={errors.nextInvoiceNumber?.message}
+            hint="Increments automatically when an invoice is saved."
+            className="sm:col-span-3"
+          >
+            {(ids) => (
+              <TextInput
+                {...ids}
+                type="number"
+                min={1}
+                step={1}
+                className="tabular-nums"
+                {...register("nextInvoiceNumber", { valueAsNumber: true })}
+              />
+            )}
+          </Field>
+
+          <Field
+            label="Accent colour"
+            error={errors.accentColor?.message}
+            className="sm:col-span-6"
+            hint="Used for the invoice heading, table header, and totals band. It is this profile's colour, not the app's — invoices from different profiles come out in different colours."
+          >
+            {(ids) => (
+              <ColorPicker
+                id={ids.id}
+                aria-describedby={ids["aria-describedby"]}
+                value={accentColor}
+                onChange={(hex) =>
+                  setValue("accentColor", hex, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
+                }
+              />
+            )}
+          </Field>
+
+          <Field
+            label="Logo"
+            error={logoError ?? undefined}
+            className="sm:col-span-6"
+            hint="Optional. PNG or JPG under 200 KB."
+          >
+            {(ids) => (
+              <div className="flex flex-wrap items-center gap-3">
+                {logoDataUrl && (
+                  // A user-supplied data URL — next/image adds nothing here.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={logoDataUrl}
+                    alt="Current logo"
+                    className="h-12 w-auto rounded-lg border border-ink-200 bg-white object-contain p-1"
+                  />
+                )}
+                <input
+                  {...ids}
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml"
+                  onChange={(event) => void handleLogo(event.target.files?.[0])}
+                  className="focus-ring rounded-lg text-sm text-ink-600 file:mr-3 file:h-9 file:cursor-pointer file:rounded-lg file:border file:border-ink-300 file:bg-white file:px-3 file:text-sm file:font-medium file:text-ink-800 hover:file:bg-ink-50"
+                />
+                {logoDataUrl && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      setValue("logoDataUrl", undefined, { shouldDirty: true })
+                    }
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            )}
+          </Field>
+        </fieldset>
+      </SectionCard>
+
+      <SectionCard
+        title="Terms & conditions"
+        description="Printed on every invoice from this profile. This is the only place they can be edited — the builder has no field for them (§4)."
+      >
+        <Field
+          label="Default terms & conditions"
+          error={errors.termsAndConditions?.message}
+        >
+          {(ids) => (
+            <TextArea {...ids} rows={6} {...register("termsAndConditions")} />
+          )}
+        </Field>
+      </SectionCard>
+
+      <Card className="px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" variant="primary" disabled={disabled}>
+            {profile ? "Save changes" : "Create profile"}
+          </Button>
+          <Button onClick={onCancel} disabled={disabled}>
+            Cancel
+          </Button>
+        </div>
+      </Card>
     </form>
   );
 }
