@@ -14,7 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/quick-fill/route";
 import { GROQ_COMPLETIONS_URL, QUICK_FILL_MODEL } from "@/lib/quick-fill";
 import { quickFillLimiter } from "@/lib/quick-fill-limiter";
-import { computeQuickFillInvoice } from "@/lib/quick-fill-solver";
+import {
+  computeQuickFillInvoice,
+  quickFillTargetTolerance,
+} from "@/lib/quick-fill-solver";
 
 const API_KEY = "gsk_test_key_do_not_use";
 
@@ -79,7 +82,7 @@ afterEach(() => {
 });
 
 describe("POST /api/quick-fill — the happy path", () => {
-  it("returns priced items that total the target exactly", async () => {
+  it("returns items priced at whole rupees, near the target", async () => {
     mockGroq(JSON.stringify({ items: MIXED_ITEMS }));
 
     const response = await POST(
@@ -89,29 +92,40 @@ describe("POST /api/quick-fill — the happy path", () => {
 
     const body = await response.json();
     expect(body.rejected).toEqual([]);
-    expect(body.total).toBe(45000);
 
     // The mix comes back described as the model described it, priced as the
-    // solver priced it — and the price is the one the app's own GST engine
-    // agrees adds up.
+    // solver priced it — in whole rupees, which is what an invoice quotes.
     expect(body.items.map((item: { description: string }) => item.description)).toEqual([
       "Fabric sofa",
       "Floor lamp",
       "Cushion cover",
     ]);
-    expect(computeQuickFillInvoice(body.items, true).grandTotal).toBe(45000);
+    for (const item of body.items) {
+      expect(Number.isInteger(item.rate)).toBe(true);
+    }
+
+    // And `total` is the app's own GST engine's figure, not the route's.
+    expect(computeQuickFillInvoice(body.items, true).grandTotal).toBe(body.total);
+    expect(body.target).toBe(45000);
+    expect(body.gap).toBe(body.total - 45000);
   });
 
-  it("hits an awkward target on the nose too", async () => {
+  it("reports the gap rather than letting the caller assume it hit", async () => {
     mockGroq(JSON.stringify({ items: MIXED_ITEMS }));
 
-    for (const targetAmount of [4999, 12347, 987654]) {
+    for (const targetAmount of [4999, 12347, 987654, 865412]) {
       const body = await (
         await POST(request({ description: "furniture", targetAmount }))
       ).json();
-      expect(body.total).toBe(targetAmount);
+
+      expect(body.target).toBe(targetAmount);
+      expect(body.gap).toBe(body.total - targetAmount);
       expect(computeQuickFillInvoice(body.items, true).grandTotal).toBe(
-        targetAmount,
+        body.total,
+      );
+      // Whole-rupee rates cannot reach every figure, but they get close.
+      expect(Math.abs(body.gap)).toBeLessThanOrEqual(
+        quickFillTargetTolerance(MIXED_ITEMS),
       );
     }
   });
@@ -131,8 +145,13 @@ describe("POST /api/quick-fill — the happy path", () => {
       )
     ).json();
 
-    expect(body.total).toBe(45000);
-    expect(computeQuickFillInvoice(body.items, false).grandTotal).toBe(45000);
+    expect(body.gap).toBe(body.total - 45000);
+    expect(computeQuickFillInvoice(body.items, false).grandTotal).toBe(
+      body.total,
+    );
+    expect(Math.abs(body.gap)).toBeLessThanOrEqual(
+      quickFillTargetTolerance(MIXED_ITEMS),
+    );
   });
 
   it("falls back to the mix's own implied total when no target is given", async () => {
@@ -142,10 +161,13 @@ describe("POST /api/quick-fill — the happy path", () => {
       await POST(request({ description: "furniture shopping" }))
     ).json();
 
-    // 9000 at 18% is 10620, and the rows are solved to exactly that rather than
-    // left at whatever the model happened to say.
-    expect(body.total).toBe(10620);
-    expect(computeQuickFillInvoice(body.items, true).grandTotal).toBe(10620);
+    // 9000 at 18% implies 10620, and the rows are priced against that rather
+    // than left at whatever the model happened to say.
+    expect(body.target).toBe(10620);
+    expect(computeQuickFillInvoice(body.items, true).grandTotal).toBe(body.total);
+    for (const item of body.items) {
+      expect(Number.isInteger(item.rate)).toBe(true);
+    }
   });
 
   it("calls Groq with the key in the header and the model in the body", async () => {
@@ -343,8 +365,9 @@ describe("POST /api/quick-fill — failure paths", () => {
     expect((await response.json()).error).toContain("None of the generated rows");
   });
 
-  it("says a target cannot be met rather than returning rows that miss it", async () => {
-    // Twelve lines of twenty units cannot come to ₹1 even at a paise a unit.
+  it("says a target is out of reach rather than returning rows nowhere near it", async () => {
+    // Twelve lines of twenty units cannot come to ₹100 at ₹1 a unit, so there is
+    // no gap worth reporting — the whole figure would be the gap.
     mockGroq(
       JSON.stringify({
         items: Array.from({ length: 12 }, (_, i) => ({
@@ -357,7 +380,7 @@ describe("POST /api/quick-fill — failure paths", () => {
     );
 
     const response = await POST(
-      request({ description: "sofa", targetAmount: 1 }),
+      request({ description: "sofa", targetAmount: 100 }),
     );
     expect(response.status).toBe(400);
 

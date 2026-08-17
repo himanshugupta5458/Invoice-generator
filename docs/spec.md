@@ -466,13 +466,13 @@ Leave `// TODO` markers where these would hook in, but keep v1 lean.
 Hand-typing eight item rows to see what an invoice looks like is the slowest part of
 trying the app out. Quick Fill takes a sentence — "furniture shopping, ₹45,000
 total", "artificial jewellery order" — and drafts a plausible set of rows to fill the
-table with. Given a target it produces rows that come to **exactly** that figure,
-which is what makes it useful for reproducing a bill you already know the total of.
-It is still an **exploration aid**, and the UI must say so: these are **sample items
-for testing, not verified purchase data**, and the prices are worked backwards from
-the target rather than looked up. Nothing about the tax engine, the PDF, or
-persistence changes; Quick Fill only produces candidate rows for the items table,
-exactly as CSV import does.
+table with. Given a target it produces rows that come **as near that figure as
+whole-rupee rates allow**, and tells the user how near, which is what makes it useful
+for reproducing a bill you already know the total of. It is still an **exploration
+aid**, and the UI must say so: these are **sample items for testing, not verified
+purchase data**, and the prices are worked backwards from the target rather than
+looked up. Nothing about the tax engine, the PDF, or persistence changes; Quick Fill
+only produces candidate rows for the items table, exactly as CSV import does.
 
 ### API surface
 
@@ -482,15 +482,23 @@ exactly as CSV import does.
 // request
 { description: string; targetAmount?: number; isIntraState?: boolean }
 // 2xx response
-{ items: InvoiceItem[]; rejected: Array<{ index: number; label?: string; messages: string[] }>; total: number }
+{
+  items: InvoiceItem[];
+  rejected: Array<{ index: number; label?: string; messages: string[] }>;
+  total: number;    // computeInvoice().grandTotal for these rows
+  target: number;   // what was aimed at
+  gap: number;      // total - target; negative under, positive over
+}
 // any error
 { error: string }   // always a plain sentence, never an upstream dump
 ```
 
-`targetAmount`, when given, is the **GST-inclusive grand total** the rows must come
-to **exactly** — in whole rupees, because §6 rounds every grand total to the nearest
-one, and a target with paise in it is refused rather than quietly missed. `total` is
-what the returned rows came to through `computeInvoice()`, so it equals the target.
+`targetAmount`, when given, is the **GST-inclusive grand total** the rows should come
+as near as whole-rupee rates allow — in whole rupees, because §6 rounds every grand
+total to the nearest one, and a target with paise in it is refused rather than
+quietly missed. `total` is what the rows came to through `computeInvoice()` and `gap`
+is how far that is from the target; **a non-zero gap must be shown to the user**,
+never left for them to notice.
 
 `isIntraState` is the invoice's tax branch (§6). It has to travel with the request:
 CGST + SGST rounds half the slab twice where IGST rounds the whole slab once, so the
@@ -510,13 +518,23 @@ which is what `computeInvoice()` itself falls back to.
   the per-unit rates. A language model is a good guesser of what a furniture bill
   contains and an unreliable arithmetician; the split plays to the first and stops
   depending on the second.
-- **The target is hit exactly, or refused.** The solver distributes the target across
-  the lines by weight, backs each line's pre-tax value out of its slab, and re-solves
-  one line — the finest-grained one — to swallow the rounding residual. It then
-  **verifies through the real `computeInvoice()`** and only returns rows whose
-  `grandTotal` *is* the target. A target no set of rates can reach (below the smallest
-  invoice those items can make) comes back as a plain sentence naming the figure they
-  can reach, never as rows that quietly miss.
+- **Every rate is a whole number of rupees, and that beats hitting the target.** A
+  real Indian invoice quotes whole-rupee rates; ₹17,675.90 and ₹287.61 are the
+  fingerprints of a figure worked backwards from a total, and a sample invoice that
+  advertises itself that way is no use for showing somebody what theirs will look
+  like. Integer rates and an exactly-matched total cannot both hold — a line of two
+  units at 18% moves the total in ₹2.36 steps — so **when they conflict, the rates
+  win**.
+- **The gap is measured and reported, never implied away.** The solver distributes the
+  target across the lines by weight, backs each line's pre-tax value out of its slab,
+  rounds to the rupee, and re-solves one line — the finest-grained one — to close as
+  much of the residual as a whole rupee can. The `total` it returns is the real
+  `computeInvoice()`'s `grandTotal`, never one it worked out itself, and `gap` says how
+  far off that is. `quickFillTargetTolerance(items)` bounds the gap for a given mix —
+  half the finest line's step, plus the half-rupee §6 rounding — so the UI can say how
+  close to expect. A target below the cheapest whole-rupee invoice those items can make
+  is refused outright with the figure they *can* reach, because there the gap would be
+  the whole amount.
 - **Model output is never trusted.** Every returned row is validated against
   `quickFillMixItemSchema` — `invoiceItemFormSchema` minus the rate the model no
   longer supplies, plus the weight it does — before it can be priced, and the solved
@@ -564,11 +582,13 @@ which is what `computeInvoice()` itself falls back to.
 ### Required tests (`tests/quick-fill.test.ts`, `tests/quick-fill-solver.test.ts`, `tests/rate-limit.test.ts`, `tests/quick-fill-route.test.ts`)
 
 The solver is tested as pure arithmetic, with no model in sight: given a target and a
-set of items with slabs and weights, `computeInvoice()` on the result returns exactly
-the target — across single and mixed slabs, both tax branches, runs of consecutive
-awkward targets, fractional quantities and lopsided weights — and the rounding drift
-is absorbed into the rates rather than left on the round-off line. An unsatisfiable
-target returns a message naming what the items can reach.
+set of items with slabs and weights, **every returned rate is an integer** and the
+`computeInvoice()` grand total lands within `quickFillTargetTolerance()` of the target
+— across single and mixed slabs, both tax branches, runs of consecutive awkward
+targets, four orders of magnitude, fractional quantities, lopsided weights, and a
+seeded sweep of generated mixes. The reported `total` must equal what
+`computeInvoice()` says, and `gap` must equal `total - target`. A target below the
+whole-rupee floor returns a message naming what the items can reach.
 
 Everywhere else, mock the Groq call; never hit the network. Cover: the prompt names
 every GST slab and the row cap and takes pricing off the model; a reply wrapped in

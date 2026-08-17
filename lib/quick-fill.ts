@@ -113,10 +113,18 @@ export interface QuickFillResponseBody {
   }>;
   rejected: QuickFillRowError[];
   /**
-   * GST-inclusive grand total of `items` as `computeInvoice()` calculates it.
-   * Equal to the requested target, which is the whole point of the solver.
+   * GST-inclusive grand total of `items` as `computeInvoice()` calculates it —
+   * the figure the invoice will actually show.
    */
   total: number;
+  /** What was aimed at: the requested target, or the mix's own implied one. */
+  target: number;
+  /**
+   * `total - target`. Whole-rupee rates cannot hit every figure, so this is how
+   * far short or over the rows landed — and it must be shown to the user rather
+   * than left for them to spot.
+   */
+  gap: number;
 }
 
 /** Every non-2xx reply from the route has this shape. */

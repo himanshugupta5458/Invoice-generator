@@ -3,9 +3,10 @@
  *
  * It exists for a single reason: the Groq API key must never reach the browser.
  * Everything else about the app is still client-side; this handler takes a
- * description, asks a model for a plausible item mix, prices that mix so it hits
- * the requested total exactly, and hands back JSON. It stores nothing and reads
- * nothing but the request.
+ * description, asks a model for a plausible item mix, prices that mix at
+ * whole-rupee rates as near the requested total as those allow, and hands back
+ * JSON — including how far off it landed. It stores nothing and reads nothing but
+ * the request.
  *
  * Order of business, cheapest refusal first:
  *   1. rate limit          — before any parsing, so a flood costs almost nothing
@@ -15,8 +16,8 @@
  *                            serverless invocation open until the platform kills it
  *   5. validation          — via lib/quick-fill.ts, which never trusts the model
  *   6. solve               — via lib/quick-fill-solver.ts, which turns the mix
- *                            into rates and refuses to return rows it cannot
- *                            verify against computeInvoice() at the target
+ *                            into whole-rupee rates and reports the total it
+ *                            reached through computeInvoice(), gap included
  *
  * Every failure path returns a plain sentence in `error`. The raw upstream
  * message is logged server-side and never forwarded: it can carry request ids
@@ -207,9 +208,9 @@ export async function POST(request: Request): Promise<Response> {
 
   // 6. Solve ---------------------------------------------------------------
   // With no target of their own, the mix's weights are the model's own rough
-  // rupee values, so they imply one. Either way there is a figure to hit and it
-  // is hit exactly — there is no second, unchecked path where the rows are
-  // whatever the model happened to say.
+  // rupee values, so they imply one. Either way there is a figure to aim at and
+  // a measured gap to report — there is no second, unchecked path where the
+  // prices are whatever the model happened to say.
   const target = targetAmount ?? impliedTargetFromMix(mix.items);
   const solved = solveQuickFillRates({
     items: mix.items,
@@ -217,13 +218,15 @@ export async function POST(request: Request): Promise<Response> {
     isIntraState,
   });
 
-  // A target these items cannot reach is the user's to fix, not something to
-  // paper over by returning rows that miss it.
+  // A target these items cannot get near at whole-rupee rates is the user's to
+  // fix, not something to paper over.
   if (!solved.ok) return fail(solved.error, 400);
 
   return Response.json({
     items: solved.items,
     rejected: mix.rejected,
     total: solved.total,
+    target: solved.target,
+    gap: solved.gap,
   } satisfies QuickFillResponseBody);
 }

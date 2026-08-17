@@ -26,10 +26,11 @@ import type { InvoiceItemFormValues } from "@/lib/validation";
  * model, so the copy says plainly that they are estimates for testing — never
  * anything that should go out as a real purchase record without being checked.
  *
- * The one figure that is *not* an estimate is the total. The model only picks
- * the mix; the rates are solved server-side against the app's own GST engine, so
- * a target of ₹45,000 comes back as rows that total ₹45,000 to the rupee. That
- * is why the target is whole rupees only — an invoice total always is (§6).
+ * The model only picks the mix; the rates are solved server-side against the
+ * app's own GST engine. Those rates are whole rupees, because that is what a real
+ * invoice quotes — which means a target is approached rather than guaranteed, and
+ * the panel says by how much it missed. Reporting ₹8,65,400 next to a target of
+ * ₹8,65,412 without mentioning the ₹12 would invite exactly the wrong assumption.
  *
  * Nothing here holds a key or talks to Groq: it POSTs to /api/quick-fill, which
  * is the only place the key exists.
@@ -45,6 +46,12 @@ interface QuickFillSummary {
   total: number;
   /** What the user asked for, when they asked for anything. */
   target?: number;
+  /**
+   * `total - target`, from the solver. Whole-rupee rates cannot reach every
+   * figure, so this is shown whenever it is not zero — a total sitting silently
+   * ₹12 below the target the user typed invites them to assume it matched.
+   */
+  gap: number;
 }
 
 export interface QuickFillState {
@@ -156,6 +163,7 @@ export function useQuickFill(
         added: data.items.length,
         rejected: Array.isArray(data.rejected) ? data.rejected : [],
         total: typeof data.total === "number" ? data.total : 0,
+        gap: typeof data.gap === "number" ? data.gap : 0,
         target,
       });
     } catch (cause) {
@@ -237,8 +245,8 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
             Quick Fill (AI)
           </h3>
           <p className="mt-0.5 text-xs text-stone-500">
-            Describe a purchase and the AI will draft sample rows for you. Give
-            it a target and the rows will total exactly that.
+            Describe a purchase and the AI will draft sample rows for you. Rates
+            come out as whole rupees, landing as near your target as those allow.
           </p>
         </div>
         <button
@@ -313,7 +321,7 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
             }}
           />
           <p className="text-xs text-stone-500">
-            Including GST. Whole rupees.
+            Including GST. Whole rupees. Approached, not guaranteed.
           </p>
         </div>
       </div>
@@ -369,13 +377,21 @@ function QuickFillSummaryNote({ summary }: { summary: QuickFillSummary }) {
         </span>
         {summary.target !== undefined && (
           <>
-            {summary.total === summary.target
-              ? " — exactly the target you asked for"
-              : ` against a target of ₹${formatINR(summary.target)}`}
+            {summary.gap === 0
+              ? " — exactly your target"
+              : ` — ₹${formatINR(Math.abs(summary.gap))} ${
+                  summary.gap < 0 ? "under" : "over"
+                } your ₹${formatINR(summary.target)} target`}
           </>
         )}
         .
       </p>
+      {summary.target !== undefined && summary.gap !== 0 && (
+        <p className="mt-1">
+          Rates are whole rupees, which cannot always add up to an exact total.
+          Adjust any rate by hand to close the difference.
+        </p>
+      )}
 
       {listed.length > 0 && (
         <>
