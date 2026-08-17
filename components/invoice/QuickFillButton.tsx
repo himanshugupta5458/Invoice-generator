@@ -12,6 +12,7 @@ import {
   MAX_EXAMPLES_CHARS,
   isQuickFillClarify,
   parseGstRateFromDescription,
+  quickFillFollowUpApplies,
   type QuickFillErrorBody,
   type QuickFillResponseBody,
   type QuickFillRowError,
@@ -103,10 +104,20 @@ export function useQuickFill(
   const [description, setDescription] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [clarifyReason, setClarifyReason] = useState<string | null>(null);
+  /** The description the follow-up was asked about — see `followUpOpen`. */
+  const [clarifiedFor, setClarifiedFor] = useState("");
   const [category, setCategory] = useState("");
   const [examples, setExamples] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<QuickFillSummary | null>(null);
+
+  // The follow-up is open only while the description is still the one it was
+  // asked about. Rewrite the description and the question — and the answer typed
+  // under it — stop applying, because a category is also what tells the route to
+  // skip the vagueness check: left standing, a stale answer would silently
+  // suppress the question the new text deserves and choose its goods too.
+  const followUpOpen =
+    clarifyReason !== null && quickFillFollowUpApplies(clarifiedFor, description);
 
   async function generate() {
     const trimmed = description.trim();
@@ -156,6 +167,15 @@ export function useQuickFill(
       target = parsed;
     }
 
+    // Answering with the category blank would send nothing the route can use and
+    // come straight back with the same question — a loop the user cannot see the
+    // way out of. The examples field stays optional.
+    if (followUpOpen && category.trim() === "") {
+      setSummary(null);
+      setError("Name the product category — it is the one thing Quick Fill cannot guess.");
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setSummary(null);
@@ -168,11 +188,12 @@ export function useQuickFill(
           description: trimmed,
           targetAmount: target,
           isIntraState,
-          // Only sent once the follow-up has been asked and answered. Sending a
-          // category is also what tells the route not to re-run the check that
-          // asked for it, so this must stay empty until the user has answered.
-          category: category.trim() || undefined,
-          examples: examples.trim() || undefined,
+          // Only sent while the follow-up is open — that is, asked about this
+          // description and answered. Sending a category is also what tells the
+          // route not to re-run the check that asked for it, so it must never
+          // travel with a description the question was not about.
+          category: followUpOpen ? category.trim() : undefined,
+          examples: followUpOpen ? examples.trim() || undefined : undefined,
         }),
       });
 
@@ -193,6 +214,13 @@ export function useQuickFill(
       // been generated or charged against the free tier.
       if (isQuickFillClarify(body)) {
         setClarifyReason(body.reason);
+        setClarifiedFor(trimmed);
+        // A question about this description supersedes anything typed under a
+        // question about a different one.
+        if (!followUpOpen) {
+          setCategory("");
+          setExamples("");
+        }
         return;
       }
 
@@ -206,6 +234,7 @@ export function useQuickFill(
       // Answered — the follow-up collapses back and its fields are cleared, so
       // the next description starts from the simple one-field panel again.
       setClarifyReason(null);
+      setClarifiedFor("");
       setCategory("");
       setExamples("");
       setSummary({
@@ -231,7 +260,7 @@ export function useQuickFill(
     setDescription,
     targetAmount,
     setTargetAmount,
-    clarifyReason,
+    clarifyReason: followUpOpen ? clarifyReason : null,
     category,
     setCategory,
     examples,
@@ -244,6 +273,7 @@ export function useQuickFill(
       setError(null);
       setSummary(null);
       setClarifyReason(null);
+      setClarifiedFor("");
       setCategory("");
       setExamples("");
     },

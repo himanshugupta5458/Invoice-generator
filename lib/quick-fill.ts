@@ -578,6 +578,31 @@ export function assessQuickFillDescription(
   };
 }
 
+/**
+ * Does a follow-up answer still belong to the description it was asked about?
+ *
+ * The question is provoked by one particular description, and the answer is an
+ * answer about *that* text. Sending a category is also what tells the route to
+ * skip the check that produced the question (§16) — so an answer left standing
+ * over a description the user has since rewritten does two wrong things at once:
+ * it suppresses the question the new text deserves, and it picks the goods. That
+ * is how a rewritten "some stuff for my shop, 50000" can come back as a full
+ * invoice of whatever the previous follow-up named.
+ *
+ * Compared rather than cleared on every keystroke, so a description edited and
+ * then edited back keeps the answer already typed. Whitespace and case are not
+ * a change of subject; anything else is.
+ */
+export function quickFillFollowUpApplies(
+  askedAbout: string,
+  description: string,
+): boolean {
+  const normalise = (text: string) =>
+    text.trim().toLowerCase().replace(/\s+/g, " ");
+  const asked = normalise(askedAbout);
+  return asked !== "" && asked === normalise(description);
+}
+
 /* ── What the request was understood to be ─────────────────────────────────── */
 
 export interface QuickFillUnderstood {

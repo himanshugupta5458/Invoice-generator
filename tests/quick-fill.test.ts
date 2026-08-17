@@ -27,6 +27,7 @@ import {
   impliedTargetFromMix,
   parseGstRateFromDescription,
   parseQuickFillMix,
+  quickFillFollowUpApplies,
   summariseQuickFill,
 } from "@/lib/quick-fill";
 import { GST_SLABS } from "@/lib/types";
@@ -669,6 +670,44 @@ describe("assessQuickFillDescription", () => {
       "some assorted stuff for my shop, 18% GST, ₹50,000",
     );
     expect(assessment.contentWords).toEqual([]);
+  });
+});
+
+/**
+ * Which description a follow-up answer belongs to (§16).
+ *
+ * This is the other half of the ask step, and the half that failed in the wild:
+ * the check itself refused "some stuff for my shop, 50000" correctly, but the
+ * answer to an *earlier* question was still attached to the panel, and a
+ * category is exactly what tells the route to skip the check. So the vague
+ * description generated — as a full invoice of the previous answer's trade.
+ */
+describe("quickFillFollowUpApplies", () => {
+  const asked = "some stuff for my shop, 50000";
+
+  it("keeps the answer while the description is the one asked about", () => {
+    expect(quickFillFollowUpApplies(asked, asked)).toBe(true);
+  });
+
+  it("drops the answer once the description has been rewritten", () => {
+    // The case from the report: the answer names seeds, the description no
+    // longer does, and sending it would both suppress the new question and pick
+    // the goods.
+    expect(quickFillFollowUpApplies("seeds for my shop", asked)).toBe(false);
+    expect(quickFillFollowUpApplies(asked, "office furniture, 50000")).toBe(false);
+    expect(quickFillFollowUpApplies(asked, `${asked} of jewellery`)).toBe(false);
+  });
+
+  it("treats spacing and case as the same description, not a new one", () => {
+    // Editing a stray space back out should not throw away what was typed.
+    expect(quickFillFollowUpApplies(asked, `  Some stuff  for my shop,  50000 `)).toBe(
+      true,
+    );
+  });
+
+  it("applies to nothing when no question has been asked", () => {
+    expect(quickFillFollowUpApplies("", asked)).toBe(false);
+    expect(quickFillFollowUpApplies("", "")).toBe(false);
   });
 });
 

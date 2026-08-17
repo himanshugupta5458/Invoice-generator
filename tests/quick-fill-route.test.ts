@@ -641,6 +641,18 @@ describe("POST /api/quick-fill — asking for what is missing", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("still asks when the category field is present but blank", async () => {
+    // A category is what tells the route to skip the check, so an empty one must
+    // not count as an answer — otherwise a client that always sends the field
+    // turns the ask step off for every description at once.
+    const response = await POST(
+      request({ description: "some stuff for my shop, 50000", category: "   " }),
+    );
+
+    expect((await response.json()).needsInfo).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("generates without asking when a trade is named", async () => {
     mockGroq(JSON.stringify({ category: "Furniture", items: ITEMS }));
 
