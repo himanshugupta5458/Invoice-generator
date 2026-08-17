@@ -197,8 +197,11 @@ describe("POST /api/quick-fill — the happy path", () => {
     // Real item names and HSN codes reach the model, in the system turn — so a
     // generated row reads like an Indian shop's bill rather than generic English.
     expect(sent.messages[0].role).toBe("system");
-    expect(sent.messages[0].content).toContain("Motor parts");
+    expect(sent.messages[0].content).toContain("Motor Vehicle Parts");
+    expect(sent.messages[0].content).toContain("Clutch plate");
     expect(sent.messages[0].content).toContain("8708");
+    // The user's description stays the only untrusted text in the request.
+    expect(sent.messages[1].content).not.toContain("Clutch plate");
   });
 
   it("never puts the API key in the response", async () => {

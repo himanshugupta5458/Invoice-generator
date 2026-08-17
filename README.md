@@ -32,7 +32,7 @@ Built to the specification in [`docs/spec.md`](docs/spec.md).
   panel tells you how near ("₹12 under your ₹8,65,412 target"). Name a GST rate in
   the description ("Motor Parts 5%") to put every row on that slab. Descriptions are
   grounded in a catalogue of real Indian item names and HSN codes, kept as an
-  editable markdown file at `.claude/skills/indian-invoice-items/SKILL.md`.
+  editable markdown file at `lib/data/indian-invoice-items.md`.
   Every generated row is validated against the same schema a typed row is, and
   anything refused is listed with the reason. Sample data for testing, not
   verified purchase records. Needs `GROQ_API_KEY`; see below.
@@ -145,7 +145,8 @@ lib/
   csv.ts              CSV → items parser — pure
   quick-fill.ts       AI prompt + response validation — pure
   quick-fill-solver.ts  solves whole-rupee item rates toward a target — pure
-  quick-fill-catalog.ts reads the Indian item catalogue skill file
+  quick-fill-catalog.ts reads the Indian item catalogue below
+  data/               indian-invoice-items.md — item names, HSN codes, slabs
   rate-limit.ts       token bucket for the Quick Fill route — pure
   history.ts          history ordering/filtering — pure
   color.ts            accent presets + contrast helpers

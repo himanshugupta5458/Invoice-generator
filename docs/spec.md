@@ -537,14 +537,17 @@ which is what `computeInvoice()` itself falls back to.
   the whole amount.
 - **Descriptions are grounded in real Indian item names.** Left to itself a model
   writes "Wooden Table" and "Decorative Lamp" — plausible English, and nothing like
-  what a shop actually bills. `.claude/skills/indian-invoice-items/SKILL.md` is a
-  catalogue of real item names with their HSN/SAC codes and usual slabs, by trade,
-  and everything below its `## Catalogue` heading is appended to the **system** turn
-  (never the user turn: the description stays the only untrusted text in the
-  request). It **degrades to absent** — a missing or unreadable catalogue costs the
-  rows some authenticity and nothing else, and must never turn into a 500. The rates
-  in it are indicative, not tax advice; a rate the user names in the description
-  overrides them, and the §16 sample-data warning still applies on screen.
+  what a shop actually bills. `lib/data/indian-invoice-items.md` is a catalogue of
+  real item names with their HSN/SAC codes and usual slabs, by trade, and it is
+  appended to the **system** turn (never the user turn: the description stays the
+  only untrusted text in the request). It **degrades to absent** — a missing or
+  unreadable catalogue costs the rows some authenticity and nothing else, and must
+  never turn into a 500. Parsing it is deliberately tolerant of how the file is
+  written (frontmatter, comments and a `## Catalogue` marker are all optional),
+  because a formatting rule enforced by returning nothing would drop the catalogue
+  out of the prompt with nothing on screen to say so. The rates in it are indicative,
+  not tax advice; a rate the user names in the description overrides them, and the
+  §16 sample-data warning still applies on screen.
 - **A GST rate named in the description pins the whole invoice to it.** "Motor Parts
   5%", "artificial jewellery 12%", "cotton shirts GST 5" — a real bill is usually all
   one slab, so naming one applies it to **every** generated row, overriding whatever
@@ -593,15 +596,19 @@ which is what `computeInvoice()` itself falls back to.
   measures its own answer against `computeInvoice()` rather than a second copy of the
   same sums.
 - `lib/quick-fill-catalog.ts` — the **only** module in `lib/` that touches the
-  filesystem, which is why it is separate: it reads the item catalogue out of the
-  skill file so `lib/quick-fill.ts` can stay pure and take it as a string. The path
-  is also listed in `next.config.ts` under `outputFileTracingIncludes`, because
-  output tracing cannot see through a runtime `readFileSync` and the file would
-  otherwise be missing from production builds only.
-- `.claude/skills/indian-invoice-items/SKILL.md` — the catalogue itself, one `###`
-  section per trade. Kept as one editable markdown file rather than duplicated into
-  TypeScript so the skill a person edits and the reference the model receives cannot
-  drift apart.
+  filesystem, which is why it is separate: it reads the item catalogue so
+  `lib/quick-fill.ts` can stay pure and take it as a string. `CATALOG_PATH` here and
+  the `outputFileTracingIncludes` entry in `next.config.ts` **move together** —
+  output tracing cannot see through a runtime `readFileSync`, so a path change on one
+  side alone leaves the file missing from production builds only, where no test is
+  watching. A test pins the path for that reason.
+- `lib/data/indian-invoice-items.md` — the catalogue itself, one `##` section per
+  trade with the HSN codes and slabs in the heading. It lives under `lib/` because it
+  is a runtime dependency of the route rather than human documentation: the route
+  stops working properly without it, which is the test for whether something belongs
+  beside the code. It stays markdown rather than a TypeScript module so adding a
+  category is a one-line edit with no build step, and stays one file rather than a
+  copy so what a person edits and what the model receives cannot drift apart.
 - `lib/rate-limit.ts` — **pure** token bucket; `now` is a parameter, not a clock read.
 - `lib/quick-fill-limiter.ts` — the shared limiter instance, kept apart so tests can
   reset it.
@@ -628,9 +635,9 @@ coerce; a rate named in the description is parsed in every form somebody writes 
 applied to every row over the model's own choice, and refused with the valid slabs
 when it is not a slab or when two different ones are named; an off-slab GST rate is
 rejected with a reason while good rows in the same reply still land; the catalogue is
-extracted below its heading, truncated at a line boundary, reaches the model in the
-system turn, and is simply absent when it cannot be read; a non-JSON reply is
-reported, not
+extracted whether or not the file carries frontmatter or a marker heading, truncated
+at a line boundary, reaches the model in the system turn and not the user turn, and is
+simply absent when it cannot be read; a non-JSON reply is reported, not
 thrown; the token bucket refills at the configured rate and never past its burst; the
 key never appears in a response; empty input and a rate-limited request both cost
 zero upstream calls.

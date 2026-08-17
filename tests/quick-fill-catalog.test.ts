@@ -22,36 +22,75 @@ import {
 import { buildQuickFillRequestBody, buildQuickFillSystemPrompt } from "@/lib/quick-fill";
 
 describe("extractCatalog", () => {
-  it("keeps what is below the Catalogue heading and drops the prose above it", () => {
+  it("takes the whole body when the file has no marker heading", () => {
+    // The shipped catalogue is shaped this way — plain `##` category headings and
+    // nothing else. Requiring a marker would have made it vanish from the prompt
+    // with nothing on screen to say so, which is why nothing is required.
+    const source = [
+      "# Indian Invoice Items Reference",
+      "",
+      "Draw from these so descriptions read authentically.",
+      "",
+      "## Artificial / Imitation Jewellery — HSN 7117, GST 3%",
+      "Kundan necklace set, Meenakari jhumka, Maang tikka",
+    ].join("\n");
+
+    const catalog = extractCatalog(source);
+    expect(catalog).toContain("Artificial / Imitation Jewellery");
+    expect(catalog).toContain("Kundan necklace set");
+    expect(catalog).toContain("7117");
+  });
+
+  it("strips YAML frontmatter, which is not for the model", () => {
     const source = [
       "---",
       "name: indian-invoice-items",
+      "description: a long line about what this is for",
       "---",
       "",
-      "# Indian invoice items",
+      "## Furniture — HSN 9403, GST 18%",
+      "Sheesham wood dining table, Godrej steel almirah",
+    ].join("\n");
+
+    const catalog = extractCatalog(source);
+    expect(catalog).toContain("Sheesham wood dining table");
+    expect(catalog).not.toContain("name: indian-invoice-items");
+    expect(catalog).not.toContain("description:");
+    expect(catalog!.startsWith("## Furniture")).toBe(true);
+  });
+
+  it("drops HTML comments, which are notes to whoever edits the file", () => {
+    const catalog = extractCatalog(
+      "<!-- Read by lib/quick-fill-catalog.ts. Keep under 8000 chars. -->\n\n## Furniture\nStudy table",
+    );
+    expect(catalog).toContain("Study table");
+    expect(catalog).not.toContain("quick-fill-catalog");
+    expect(catalog).not.toContain("8000");
+  });
+
+  it("honours a Catalogue marker when one is present", () => {
+    const source = [
+      "# Title",
       "",
       "Notes for whoever edits this file.",
       "",
       "## Catalogue",
       "",
       "### Artificial jewellery",
-      "",
       "| Oxidised Jhumka Earrings | 7117 | 3% |",
     ].join("\n");
 
     const catalog = extractCatalog(source);
     expect(catalog).toContain("Artificial jewellery");
-    expect(catalog).toContain("7117");
-    // The contributor-facing half would only spend tokens.
     expect(catalog).not.toContain("Notes for whoever edits");
-    expect(catalog).not.toContain("name: indian-invoice-items");
   });
 
-  it("is undefined when there is no catalogue in the file", () => {
-    expect(extractCatalog("# Just prose, no heading")).toBeUndefined();
+  it("is undefined only when there is genuinely no content", () => {
     expect(extractCatalog("")).toBeUndefined();
-    // A heading with nothing under it is the same as no catalogue.
+    expect(extractCatalog("   \n  \n")).toBeUndefined();
+    expect(extractCatalog("---\nname: x\n---\n")).toBeUndefined();
     expect(extractCatalog("## Catalogue\n\n   \n")).toBeUndefined();
+    expect(extractCatalog("<!-- only a comment -->")).toBeUndefined();
   });
 
   it("truncates a long catalogue at a line boundary, never mid-row", () => {
@@ -71,22 +110,48 @@ describe("extractCatalog", () => {
 });
 
 describe("readItemCatalog", () => {
-  it("reads the skill file that ships with the repo", () => {
+  it("reads the catalogue that ships with the repo", () => {
     const catalog = readItemCatalog();
 
     expect(catalog).toBeDefined();
-    // The scaffolded categories the prompt depends on being there.
-    expect(catalog).toContain("Artificial jewellery");
-    expect(catalog).toContain("Motor parts");
-    expect(catalog).toContain("HSN/SAC");
+    // Every category, so a botched edit that drops one is caught here.
+    for (const category of [
+      "Artificial / Imitation Jewellery",
+      "Motor Vehicle Parts",
+      "Textiles & Apparel",
+      "Furniture",
+      "Electronics & Appliances",
+      "FMCG & Groceries",
+      "Hardware & Building Material",
+      "Stationery & Office Supplies",
+    ]) {
+      expect(catalog).toContain(category);
+    }
+
+    // Real item names and real HSN codes, which is the whole point.
+    expect(catalog).toContain("Meenakari jhumka");
+    expect(catalog).toContain("Sheesham wood dining table");
+    expect(catalog).toContain("7117");
+
+    // And the caveat travels with the data rather than being left behind.
+    expect(catalog).toContain("not authoritative tax guidance");
   });
 
-  it("reads from the documented path", () => {
-    // Guards the one thing next.config.ts has to keep in step: if this path
-    // moves, the outputFileTracingIncludes entry has to move with it or the
-    // catalogue vanishes from production builds only.
+  it("reads from the documented path, which next.config.ts must match", () => {
+    // The one thing that has to stay in step: output tracing cannot see through
+    // a runtime readFileSync, so if CATALOG_PATH moves without the
+    // outputFileTracingIncludes entry moving too, the catalogue vanishes from
+    // production builds only — where no test would be watching.
+    expect(CATALOG_PATH).toBe(join("lib", "data", "indian-invoice-items.md"));
     const source = readFileSync(join(process.cwd(), CATALOG_PATH), "utf8");
     expect(extractCatalog(source)).toBe(readItemCatalog());
+  });
+
+  it("fits inside the prompt budget without being truncated", () => {
+    // If the catalogue outgrows the cap, this fails rather than the tail of it
+    // quietly disappearing from the prompt.
+    const source = readFileSync(join(process.cwd(), CATALOG_PATH), "utf8");
+    expect(extractCatalog(source)!.length).toBeLessThan(MAX_CATALOG_CHARS);
   });
 });
 

@@ -3,14 +3,14 @@
  *
  * Left to itself a model writes "Wooden Table" and "Decorative Lamp" — plausible
  * English, and nothing like what a shop in Karol Bagh puts on a bill. The
- * catalogue at `.claude/skills/indian-invoice-items/SKILL.md` lists real item
- * names with their HSN codes and usual slabs, by trade, and this module reads it
- * so the route can append it to the model's standing instruction.
+ * catalogue at `lib/data/indian-invoice-items.md` lists real item names with
+ * their HSN codes and usual slabs, by trade, and this module reads it so the
+ * route can append it to the model's standing instruction.
  *
  * This is the ONLY module in `lib/` that touches the filesystem, which is why it
  * is a module of its own: `lib/quick-fill.ts` stays pure and testable, and takes
  * the catalogue as a plain string argument (§16 structure rules). Nothing here
- * runs in the browser.
+ * runs in the browser — the route is the only caller.
  *
  * Two deliberate choices:
  *
@@ -31,23 +31,25 @@ import { join } from "node:path";
 /**
  * Where the catalogue lives, relative to the project root.
  *
- * Note the coupling: an app route reads a file out of the agent tooling
- * directory. It is there so that the skill a person edits and the reference the
- * model receives are the same file rather than two copies that drift apart.
- * `next.config.ts` lists it in `outputFileTracingIncludes` so it is bundled with
- * the route — static analysis cannot see through a `readFileSync` path, so
- * without that entry it would be missing from a production deploy.
+ * Under `lib/` because it is a runtime dependency of the route, not human
+ * documentation — the route stops working properly without it, which is the test
+ * for whether something belongs beside the code. It stays a markdown file rather
+ * than becoming a TypeScript module so that adding a category is a one-line edit
+ * anyone can make, with no build step and no risk of a stray quote breaking the
+ * app.
+ *
+ * `next.config.ts` lists this path in `outputFileTracingIncludes` so it is
+ * bundled with the route: output tracing works by static analysis and cannot see
+ * through a `readFileSync` path assembled at runtime, so without that entry the
+ * file would be missing from production builds only. **Move this constant and
+ * that entry together.**
  */
-export const CATALOG_PATH = join(
-  ".claude",
-  "skills",
-  "indian-invoice-items",
-  "SKILL.md",
-);
+export const CATALOG_PATH = join("lib", "data", "indian-invoice-items.md");
 
 /**
- * Everything after the `## Catalogue` heading is for the model. The prose above
- * it explains the file to a human contributor and would only spend tokens.
+ * An optional marker for "the model-facing part starts here", for a catalogue
+ * that wants a human-facing preamble longer than a comment. Absent from the
+ * shipped file, and absent is fine — see `extractCatalog()`.
  */
 const CATALOG_HEADING = "## Catalogue";
 
@@ -61,16 +63,33 @@ const CATALOG_HEADING = "## Catalogue";
 export const MAX_CATALOG_CHARS = 8000;
 
 /**
- * Pull the model-facing half out of the skill file's text.
+ * Pull the model-facing content out of the catalogue file's text.
+ *
+ * Deliberately tolerant about the file's shape, because the file is meant to be
+ * edited by hand and a formatting rule enforced by returning `undefined` is a
+ * trap: the catalogue would vanish from the prompt with nothing on screen to say
+ * so. So the only thing required is that there is *some* content.
+ *
+ *  - YAML frontmatter is stripped if present, and ignored if not.
+ *  - `## Catalogue` is honoured as a "starts here" marker when it is there, and
+ *    not required when it is not.
+ *  - HTML comments are dropped: they are notes to whoever edits the file, and
+ *    the model does not need to read the editing instructions.
  *
  * Pure, and exported separately from the reading so it can be tested without a
  * filesystem: given the file, this is exactly what the model will be shown.
  */
 export function extractCatalog(source: string): string | undefined {
-  const start = source.indexOf(CATALOG_HEADING);
-  if (start === -1) return undefined;
+  let body = source.replace(/^﻿/, "").trimStart();
 
-  const body = source.slice(start + CATALOG_HEADING.length).trim();
+  // Frontmatter, if the file happens to carry any.
+  const frontmatter = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(body);
+  if (frontmatter) body = body.slice(frontmatter[0].length);
+
+  const marked = body.indexOf(CATALOG_HEADING);
+  if (marked !== -1) body = body.slice(marked + CATALOG_HEADING.length);
+
+  body = body.replace(/<!--[\s\S]*?-->/g, "").trim();
   if (body === "") return undefined;
 
   if (body.length <= MAX_CATALOG_CHARS) return body;
