@@ -308,8 +308,11 @@ describe("store wired to the repository", () => {
     await useInvoiceStore.getState().hydrate();
     storage.failOnWrite = true;
 
-    await useInvoiceStore.getState().saveBuyer(buyer());
+    const saved = await useInvoiceStore.getState().saveBuyer(buyer());
 
+    // Callers close forms and show success notices off this boolean, so a
+    // refused write has to report itself rather than resolve quietly.
+    expect(saved).toBe(false);
     // The record was never persisted, so it must not appear in memory either.
     expect(useInvoiceStore.getState().buyers).toEqual([]);
     expect(useInvoiceStore.getState().error).toMatch(/storage/i);
@@ -426,6 +429,21 @@ describe("an issued invoice is immune to later edits", () => {
     );
     expect(computed.isIntraState).toBe(true);
     expect(computed.grandTotal).toBe(1180);
+  });
+
+  it("reports a refused save so the builder can keep the invoice number", async () => {
+    const store = useInvoiceStore.getState();
+    await store.hydrate();
+    await store.saveProfile(profile());
+
+    storage.failOnWrite = true;
+    const saved = await useInvoiceStore
+      .getState()
+      .saveInvoice(toInvoice(formValues(), profile(), "invoice-1"));
+
+    expect(saved).toBe(false);
+    expect(useInvoiceStore.getState().invoices).toEqual([]);
+    expect(useInvoiceStore.getState().error).toMatch(/storage/i);
   });
 
   it("saves as paid and survives a status toggle across a reload", async () => {

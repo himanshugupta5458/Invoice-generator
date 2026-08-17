@@ -28,8 +28,10 @@ export function ProfilesPanel() {
 
   async function handleSubmit(values: BusinessProfileFormValues) {
     const id = editing?.id ?? createId();
-    await saveProfile(toProfile(values, id));
-    setMode({ kind: "list" });
+    // Stay on the form if the write was refused — a profile carrying a logo is
+    // the most likely thing to hit the storage quota, and re-typing it all
+    // because the panel closed would be the worst possible response.
+    if (await saveProfile(toProfile(values, id))) setMode({ kind: "list" });
   }
 
   async function handleDelete(profile: BusinessProfile) {

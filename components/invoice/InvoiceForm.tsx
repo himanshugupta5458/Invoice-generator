@@ -221,7 +221,11 @@ export function InvoiceForm() {
     if (!profile) return;
     setSavedNotice(null);
 
-    await saveInvoice(toInvoice(values, profile, createId()));
+    const saved = await saveInvoice(toInvoice(values, profile, createId()));
+    // Browser storage can refuse the write (quota, private mode). The banner is
+    // already showing why; claiming success, clearing the form, and burning an
+    // invoice number on top of that would lose the user's work.
+    if (!saved) return;
 
     // "Save this buyer for next time" (§4) — only for a buyer typed in fresh.
     if (values.saveBuyer && values.buyerId === "") {

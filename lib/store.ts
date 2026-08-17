@@ -42,13 +42,19 @@ export interface InvoiceGenState {
   hydrate: () => Promise<void>;
   clearError: () => void;
 
-  saveProfile: (profile: BusinessProfile) => Promise<void>;
+  /**
+   * The three save actions resolve to whether the write actually landed. A
+   * caller that closes a form or shows a success notice must check it —
+   * storage can refuse (quota, private mode), and the record is then in
+   * neither storage nor state.
+   */
+  saveProfile: (profile: BusinessProfile) => Promise<boolean>;
   deleteProfile: (id: string) => Promise<void>;
 
-  saveBuyer: (buyer: SavedBuyer) => Promise<void>;
+  saveBuyer: (buyer: SavedBuyer) => Promise<boolean>;
   deleteBuyer: (id: string) => Promise<void>;
 
-  saveInvoice: (invoice: Invoice) => Promise<void>;
+  saveInvoice: (invoice: Invoice) => Promise<boolean>;
   deleteInvoice: (id: string) => Promise<void>;
   setInvoiceStatus: (id: string, status: InvoiceStatus) => Promise<void>;
 
@@ -131,10 +137,11 @@ export const useInvoiceStore = create<InvoiceGenState>()((set, get) => {
     clearError: () => set({ error: null }),
 
     saveProfile: async (profile) => {
-      await run(
+      const result = await run(
         () => getRepository().saveProfile(profile),
         (saved) => ({ profiles: upsert(get().profiles, saved) }),
       );
+      return result !== null;
     },
 
     deleteProfile: async (id) => {
@@ -145,10 +152,11 @@ export const useInvoiceStore = create<InvoiceGenState>()((set, get) => {
     },
 
     saveBuyer: async (buyer) => {
-      await run(
+      const result = await run(
         () => getRepository().saveBuyer(buyer),
         (saved) => ({ buyers: upsert(get().buyers, saved) }),
       );
+      return result !== null;
     },
 
     deleteBuyer: async (id) => {
@@ -159,10 +167,11 @@ export const useInvoiceStore = create<InvoiceGenState>()((set, get) => {
     },
 
     saveInvoice: async (invoice) => {
-      await run(
+      const result = await run(
         () => getRepository().saveInvoice(invoice),
         (saved) => ({ invoices: upsert(get().invoices, saved) }),
       );
+      return result !== null;
     },
 
     deleteInvoice: async (id) => {

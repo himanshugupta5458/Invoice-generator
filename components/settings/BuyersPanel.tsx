@@ -40,8 +40,9 @@ export function BuyersPanel() {
 
   async function handleSubmit(values: BuyerFormValues) {
     const id = editing?.id ?? createId();
-    await saveBuyer(toSavedBuyer(values, id));
-    setMode({ kind: "list" });
+    // Only leave the form on a write that actually landed — closing it after a
+    // failed save would throw away everything just typed.
+    if (await saveBuyer(toSavedBuyer(values, id))) setMode({ kind: "list" });
   }
 
   async function handleDelete(buyer: SavedBuyer) {
