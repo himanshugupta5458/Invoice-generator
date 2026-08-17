@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -84,6 +85,12 @@ export interface QuickFillState {
   error: string | null;
   /** What the last successful generation produced. */
   summary: QuickFillSummary | null;
+  /**
+   * How many of the business profile's own item names are grounding this
+   * generation (§16, v1.2). Zero for a profile that has taught Quick Fill
+   * nothing, which is the default and changes nothing about the flow.
+   */
+  styleExampleCount: number;
   toggle: () => void;
   close: () => void;
   generate: () => Promise<void>;
@@ -94,10 +101,16 @@ export interface QuickFillState {
  * @param isIntraState  The invoice's current tax branch (§6). It has to travel
  *   with the request because CGST + SGST and IGST round differently, and the
  *   solver has to price for the branch these rows will actually be taxed on.
+ * @param styleExamples  The selected business profile's own item names, when it
+ *   has any (§16, v1.2). Optional style grounding for the generated
+ *   descriptions; a profile without them generates exactly as before. They come
+ *   from the *selected* profile and nowhere else, which is what keeps one
+ *   business's vocabulary out of another's invoices.
  */
 export function useQuickFill(
   onGenerate: (items: InvoiceItemFormValues[]) => void,
   isIntraState: boolean,
+  styleExamples?: string[],
 ): QuickFillState {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -194,6 +207,9 @@ export function useQuickFill(
           // travel with a description the question was not about.
           category: followUpOpen ? category.trim() : undefined,
           examples: followUpOpen ? examples.trim() || undefined : undefined,
+          // Omitted rather than sent empty when the profile has taught nothing,
+          // so the request looks exactly as it did before this existed.
+          styleExamples: styleExamples?.length ? styleExamples : undefined,
         }),
       });
 
@@ -267,6 +283,7 @@ export function useQuickFill(
     setExamples,
     error,
     summary,
+    styleExampleCount: styleExamples?.length ?? 0,
     toggle: () => setOpen((value) => !value),
     close: () => {
       setOpen(false);
@@ -425,6 +442,24 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
           </p>
         </div>
       </div>
+
+      {/* Said before the rows are generated, not after: it explains why the
+          descriptions will read the way they do, and it is also the only place
+          somebody would think to look for where those examples came from. */}
+      {state.styleExampleCount > 0 && (
+        <p className="mt-3 text-xs leading-relaxed text-ink-500">
+          Drafting in this business&rsquo;s own vocabulary, from{" "}
+          {state.styleExampleCount} example item{" "}
+          {state.styleExampleCount === 1 ? "name" : "names"} on its profile.{" "}
+          <Link
+            href="/settings"
+            className="focus-ring rounded font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800"
+          >
+            Change them in Settings
+          </Link>
+          .
+        </p>
+      )}
 
       {/* Step two, when there is one. It expands in place rather than opening a
           dialog — the description it is about is still on screen above it, and a

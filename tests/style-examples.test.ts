@@ -274,6 +274,8 @@ describe("sanitiseStyleExamples — what arrives over the wire", () => {
     expect(sanitiseStyleExamples(undefined)).toEqual([]);
     expect(sanitiseStyleExamples(null)).toEqual([]);
     expect(sanitiseStyleExamples(42)).toEqual([]);
+    // A bare string is the form's shape, never the stored or sent one.
+    expect(sanitiseStyleExamples("Kundan Necklace Set")).toEqual([]);
     expect(sanitiseStyleExamples({ examples: ["x"] })).toEqual([]);
     expect(sanitiseStyleExamples([1, true, null])).toEqual([]);
   });

@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_COMPLETION_TOKENS,
   MAX_GENERATED_ITEMS,
+  PROMPT_STYLE_EXAMPLE_LIMIT,
   QUICK_FILL_MODEL,
   QUICK_FILL_SYSTEM_PROMPT,
   assessQuickFillDescription,
@@ -156,6 +157,94 @@ describe("buildQuickFillRequestBody", () => {
     // tier's per-minute cap and buys a 429 instead. See the constant's comment.
     expect(MAX_COMPLETION_TOKENS).toBeGreaterThanOrEqual(1500);
     expect(MAX_COMPLETION_TOKENS).toBeLessThanOrEqual(3000);
+  });
+});
+
+/**
+ * The business's own item names, injected as style guidance (§16, v1.2).
+ *
+ * Two properties matter and they pull against each other. Present, the examples
+ * have to actually reach the model, or the feature does nothing. Absent — which
+ * is every profile that has not opted in — the prompt has to be byte-for-byte
+ * what it was before the feature existed, because that is what "purely additive"
+ * has to mean for a request that already works.
+ */
+describe("buildQuickFillUserPrompt — a business's own style examples", () => {
+  const STYLE = ["Kundan Necklace Set", "Antique Finish Jhumka Pair"];
+
+  it("puts the examples in the prompt when the profile has some", () => {
+    const prompt = buildQuickFillUserPrompt({
+      description: "artificial jewellery order",
+      styleExamples: STYLE,
+    });
+
+    expect(prompt).toContain("This business names its own products like this:");
+    for (const example of STYLE) expect(prompt).toContain(`- ${example}`);
+  });
+
+  it("frames them as a style guide rather than a shopping list", () => {
+    // Same failure the catalogue had to be worded against: hand a model a list
+    // of product names and it will happily bill those products, whatever was
+    // actually described.
+    const prompt = buildQuickFillUserPrompt({
+      description: "office chairs",
+      styleExamples: STYLE,
+    });
+
+    expect(prompt).toContain("style guide, NOT a shopping list");
+    expect(prompt).toContain(
+      "name only goods the purchase described above actually contains",
+    );
+  });
+
+  it("changes nothing at all when the profile has no examples", () => {
+    const base = buildQuickFillUserPrompt({
+      description: "furniture shopping",
+      targetAmount: 45000,
+    });
+
+    for (const styleExamples of [undefined, [], ["   "], ["Total", "Qty Rate"]]) {
+      expect(
+        buildQuickFillUserPrompt({
+          description: "furniture shopping",
+          targetAmount: 45000,
+          styleExamples,
+        }),
+      ).toBe(base);
+    }
+  });
+
+  it("cleans and caps whatever it is handed", () => {
+    const prompt = buildQuickFillUserPrompt({
+      description: "artificial jewellery",
+      styleExamples: [
+        // A pasted invoice row, figures and all.
+        "1. Kundan Necklace Set\t71171990\t2\t4,500.00",
+        ...Array.from({ length: 30 }, (_, index) => `Silver anklet ${index}`),
+      ],
+    });
+
+    expect(prompt).toContain("- Kundan Necklace Set");
+    expect(prompt).not.toContain("71171990");
+    expect(prompt).not.toContain("4,500.00");
+
+    const listed = prompt
+      .split("\n")
+      .filter((line) => line.startsWith("- ")).length;
+    expect(listed).toBe(PROMPT_STYLE_EXAMPLE_LIMIT);
+  });
+
+  it("keeps the examples in the user turn, where the user's own text lives", () => {
+    // The catalogue is app-supplied and belongs in the system turn; this is
+    // text a person typed, and the system turn stays what the app vouches for.
+    const body = buildQuickFillRequestBody({
+      description: "artificial jewellery",
+      catalog: "## Artificial jewellery\n- Kundan set",
+      styleExamples: STYLE,
+    });
+
+    expect(body.messages[0].content).not.toContain("Kundan Necklace Set");
+    expect(body.messages[1].content).toContain("Kundan Necklace Set");
   });
 });
 

@@ -81,6 +81,12 @@ export interface ItemsTableProps {
   register: UseFormRegister<InvoiceFormValues>;
   /** Live totals from lib/gst.ts; `computed.lines` matches the rows in order. */
   computed: ComputedInvoice;
+  /**
+   * The selected business profile's own item names, when it has taught Quick
+   * Fill any (§16, v1.2). Passed straight through to the generation; absent for
+   * a profile that has not, which is the default.
+   */
+  styleExamples?: string[];
   errors?: FieldErrors<InvoiceFormValues>["items"];
   disabled?: boolean;
 }
@@ -100,6 +106,7 @@ export function ItemsTable({
   control,
   register,
   computed,
+  styleExamples,
   errors,
   disabled = false,
 }: ItemsTableProps) {
@@ -191,7 +198,11 @@ export function ItemsTable({
   const csv = useCsvImport(handleBulkAppend);
   // Quick Fill solves its rates against this invoice's tax branch, so it needs
   // the branch the totals panel is already showing (§6, §16).
-  const quickFill = useQuickFill(handleBulkAppend, computed.isIntraState);
+  const quickFill = useQuickFill(
+    handleBulkAppend,
+    computed.isIntraState,
+    styleExamples,
+  );
   const quickFillPanelId = `${rowIdPrefix}quick-fill`;
 
   return (

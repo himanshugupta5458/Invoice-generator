@@ -36,6 +36,13 @@ Built to the specification in [`docs/spec.md`](docs/spec.md).
   Every generated row is validated against the same schema a typed row is, and
   anything refused is listed with the reason. Sample data for testing, not
   verified purchase records. Needs `GROQ_API_KEY`; see below.
+- **Teach Quick Fill your product style** *(v1.2, optional)* — a business profile
+  can carry a few example item names in its own words ("Antique Finish Jhumka
+  Pair"), pasted in or read out of a sample invoice PDF **in your browser**, and
+  Quick Fill will draft descriptions in that vocabulary instead of generic
+  English. It is one collapsed section at the end of the profile form and nothing
+  requires it: a profile without examples generates exactly as before. Still no
+  database and no embeddings — the examples go into the prompt as they are.
 - **PDF download** — real selectable text in Noto Sans, with the ₹ glyph, themed
   from the profile's accent colour, including bank details, terms, and a
   paid/unpaid badge.
@@ -95,8 +102,11 @@ There is no database and no account in v1. In practice:
   elsewhere. Importing *replaces* everything currently stored.
 
 The one exception is Quick Fill: the description you type there is sent to the
-server route and on to Groq. No invoice, buyer, profile, or stored data goes with
-it, and nothing is written down on the way. Do not enable it if that trip is
+server route and on to Groq — along with the example item names on the selected
+profile, if you have given it any (v1.2). No invoice, buyer, address, GSTIN or
+other stored data goes with it, and nothing is written down on the way. A sample
+invoice PDF you point the examples feature at is read in your browser and never
+uploaded; only the item names you keep are stored, and only they are sent. Do not enable it if that trip is
 unacceptable — the rest of the app never makes a network call.
 
 Saved invoices embed a frozen snapshot of the business details, buyer, ship-to,
@@ -153,6 +163,8 @@ lib/
   quick-fill-solver.ts  solves whole-rupee item rates toward a target — pure
   quick-fill-catalog.ts reads the Indian item catalogue below
   data/               indian-invoice-items.md — item names, HSN codes, slabs
+  style-examples.ts   a profile's own item names: parsing + caps — pure
+  pdf-text.ts         reads a sample invoice PDF in the browser (pdfjs-dist)
   rate-limit.ts       token bucket for the Quick Fill route — pure
   history.ts          history ordering/filtering — pure
   color.ts            accent presets + contrast helpers
@@ -171,7 +183,8 @@ the money maths stays trivially testable.
 Next.js (App Router) + TypeScript · Tailwind CSS · React Hook Form + Zod ·
 `@react-pdf/renderer` · Zustand · Vitest. Quick Fill (v1.1) calls Groq
 (`openai/gpt-oss-120b` by default, overridable with `GROQ_MODEL`) from one
-serverless route.
+serverless route. `pdfjs-dist` (v1.2) reads sample invoices in the browser and is
+loaded on demand, so it is only fetched if you use that feature.
 
 ## Not in v1
 

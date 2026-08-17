@@ -28,6 +28,7 @@
 
 import { z } from "zod";
 
+import { sanitiseStyleExamples } from "./style-examples";
 import { GST_SLABS } from "./types";
 import { invoiceItemFormSchema } from "./validation";
 
@@ -116,6 +117,17 @@ export interface QuickFillInput {
    * comma-separated list is what the field asks for, but nothing depends on it.
    */
   examples?: string;
+  /**
+   * Example item descriptions in the *business's* own words, from its profile
+   * (§16, v1.2). Optional style grounding: they tell the model how this shop
+   * names things, not what to sell. Absent — the common case — leaves the
+   * prompt exactly as it was before the feature existed.
+   *
+   * Not to be confused with `examples` above, which is one answer to one
+   * follow-up question about one description. These belong to the profile and
+   * outlive any single generation.
+   */
+  styleExamples?: string[];
   /**
    * Overrides `QUICK_FILL_MODEL`. Comes from `GROQ_MODEL`, read by the route —
    * this module never touches `process.env` (§16), which is also what lets a
@@ -418,6 +430,15 @@ export function parseGstRateFromDescription(
 export const MAX_EXAMPLES_CHARS = 200;
 
 /**
+ * How many of a profile's style examples reach one prompt (§16, v1.2).
+ *
+ * Fewer than the twenty a profile may store, because a dozen names already
+ * establish a voice and the rest only cost tokens — and because the storage cap
+ * is free to grow later without that quietly growing every request too.
+ */
+export const PROMPT_STYLE_EXAMPLE_LIMIT = 12;
+
+/**
  * Words that carry no information about what was bought.
  *
  * Three kinds, and the third is the interesting one: articles and prepositions;
@@ -677,6 +698,39 @@ export function buildQuickFillUserPrompt(input: QuickFillInput): string {
         "Return items of that kind — the examples themselves are fair game.",
       );
     }
+  }
+
+  /*
+   * Style grounding from the business's own profile (§16, v1.2).
+   *
+   * The catalogue in the system turn teaches the model how an Indian invoice
+   * reads in general; this teaches it how *this* business writes, which the
+   * catalogue cannot know. It is stated as a style guide and explicitly not as
+   * a menu, for the same reason the catalogue is: given a list of product names
+   * a model will happily bill them, and rows of the wrong goods is the failure
+   * this feature has already had once.
+   *
+   * It goes in the *user* turn rather than the system turn, unlike the
+   * catalogue. The catalogue is text the app ships; this is text a person
+   * typed, and the system turn is where instructions the app itself vouches for
+   * live. Keeping that line clean is worth more than the small amount of weight
+   * the system turn would add.
+   */
+  const styleExamples = sanitiseStyleExamples(input.styleExamples).slice(
+    0,
+    PROMPT_STYLE_EXAMPLE_LIMIT,
+  );
+  if (styleExamples.length > 0) {
+    lines.push(
+      "",
+      "This business names its own products like this:",
+      ...styleExamples.map((example) => `- ${example}`),
+      "",
+      "Match that naming style — the wording, the level of detail, the vocabulary —",
+      "when you write each description. It is a style guide, NOT a shopping list:",
+      "name only goods the purchase described above actually contains, and never",
+      "copy an example that does not belong on this invoice.",
+    );
   }
 
   if (input.targetAmount !== undefined) {

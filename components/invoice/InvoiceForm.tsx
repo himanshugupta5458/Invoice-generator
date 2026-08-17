@@ -518,6 +518,9 @@ export function InvoiceForm() {
             control={control}
             register={register}
             computed={computed}
+            // From the selected profile only, so Quick Fill writes in this
+            // business's vocabulary and never in another's (§16, v1.2).
+            styleExamples={profile?.styleExamples}
             errors={errors.items}
             disabled={locked}
           />

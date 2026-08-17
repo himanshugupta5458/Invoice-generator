@@ -165,6 +165,10 @@ export interface BusinessProfile {
   nextInvoiceNumber: number;                // e.g. 1
   accentColor: string;                      // hex, e.g. "#7a5230" — drives invoice theming
   termsAndConditions?: string;               // default T&C text — editable only in /settings
+  styleExamples?: string[];                 // v1.2, optional: example item names in this
+                                            // business's own words, used to ground Quick
+                                            // Fill's descriptions (§16). Absent = unchanged
+                                            // behaviour.
 }
 export interface Buyer {
   name: string; address: string;
@@ -445,6 +449,18 @@ uses. Leave this marker at the repository boundary:
 - [ ] Prompt construction, response validation, and the rate limiter are unit
       tested with the network call mocked.
 
+### v1.2 additions
+
+- [ ] A business profile can optionally carry example item descriptions in its own
+      words, added by pasting lines or by reading a text-based PDF **in the browser**,
+      and Quick Fill grounds its generated descriptions in them.
+- [ ] The section is collapsed, labelled optional, and last in the profile form; a
+      profile without examples behaves exactly as it did in v1.1, byte-for-byte.
+- [ ] Pasted or extracted text is cleaned and capped before it is stored, and the form
+      shows what will actually be saved.
+- [ ] Still no database, no embeddings and no vector store — this is style grounding,
+      not retrieval (§15).
+
 ---
 
 ## 15. Out of scope for v1 (note as future work, do not build)
@@ -454,6 +470,13 @@ tested, and only if actually needed), e-invoicing/IRN & QR, UPI QR code on invoi
 HSN-wise summary table, reverse-charge and TCS handling, multi-currency, email/WhatsApp
 delivery, GSTR export, partial-payment or overdue tracking beyond a simple paid/unpaid flag.
 Leave `// TODO` markers where these would hook in, but keep v1 lean.
+
+Also out of scope: **retrieval-augmented Quick Fill** — indexing a business's saved
+invoices in a vector store and retrieving the nearest items per request. v1.2 ships the
+cheap version of that idea instead (a short list of example item names on the profile,
+pasted into the prompt whole — see §16), which needs no database, no embeddings and no
+retrieval step. Revisit the full version only if the style examples prove not to be
+enough in real use.
 
 ---
 
@@ -484,7 +507,12 @@ only produces candidate rows for the items table, exactly as CSV import does.
 
 ```ts
 // request
-{ description: string; targetAmount?: number; isIntraState?: boolean }
+{
+  description: string;
+  targetAmount?: number;
+  isIntraState?: boolean;
+  styleExamples?: string[];   // v1.2, optional — the selected profile's own item names
+}
 // 2xx response
 {
   items: InvoiceItem[];
@@ -586,6 +614,54 @@ which is what `computeInvoice()` itself falls back to.
 - **Degrades to absent.** With no key set, the route returns 503 with a clear message
   and the rest of the app is unaffected.
 
+### Style grounding from the business's own item names — **v1.2, optional**
+
+> **Explicitly NOT RAG.** No database, no embeddings, no vector store, no similarity
+> search, no chunking, no retrieval step. A handful of example strings live on the
+> business profile in `localStorage` and are pasted into the prompt whole. The
+> full retrieval-augmented version — indexing a business's real invoice history and
+> retrieving the nearest items per request — stays **future work** (§15), to be
+> built only if demand actually shows up. This is the cheap 90% of the benefit at
+> none of the architectural cost, and it is the reason §2, §7 and §13 are untouched
+> by it: still no database, still localStorage, still no required configuration.
+
+The catalogue above teaches the model how an Indian invoice reads *in general*. It
+cannot know that this particular shop writes "Antique Finish Jhumka Pair" where
+another writes "Oxidised Earrings". So a business profile may optionally carry up to
+**20 example item descriptions** in its own words, and Quick Fill shows up to
+`PROMPT_STYLE_EXAMPLE_LIMIT` (12) of them to the model as a **style guide**.
+
+- **Optional, and additive.** A profile with no examples produces a request that is
+  byte-for-byte the one v1.1 produced. Nothing about the ask-path, category
+  adherence, integer rates, a pinned GST slab, the whole-rupee target or the summary
+  chip changes. A test pins that equality, because "purely additive" is a claim that
+  rots quietly.
+- **Per-business by construction.** The examples live on the profile and the builder
+  reads them from the *selected* profile only, so one business's vocabulary can never
+  reach another's invoice. They are frozen into `businessSnapshot` like everything
+  else on the profile (§5).
+- **A style guide, not a shopping list.** The prompt says so in those words. Hand a
+  model a list of product names and it will bill those products whatever was
+  described — the same failure the catalogue is worded against — so the examples
+  govern *how a description is written*, never *which goods appear*.
+- **User turn, not system turn.** Unlike the catalogue, this is text a person typed.
+  The system turn stays what the app itself vouches for.
+- **Two ways in, and the reliable one is the paste box.** A textarea takes example
+  lines; a sample invoice can be read **client-side** with `pdfjs-dist`, text-based
+  PDFs only. Every extraction failure — a scan with no text layer, an encrypted or
+  damaged file, the library failing to load at all — ends in a sentence pointing back
+  at the paste box. The file never leaves the browser (the same promise CSV import
+  makes) and only the names the user keeps are stored.
+- **What is typed is not what is stored.** A pasted invoice row arrives with serial
+  numbers, HSN codes, quantities and rates attached; `lib/style-examples.ts` finds the
+  name inside the row, drops the invoice's own furniture (column headings, totals,
+  GSTINs, dates, the amount in words), deduplicates case-insensitively, and caps the
+  list at 20 examples / 80 characters each / 800 characters in total. The form shows
+  what will actually be saved, and says how many lines did not fit.
+- **Re-cleaned on the way in.** The route runs the same pure sanitiser over whatever
+  the browser sends, and a malformed value means *no examples*, never a refusal —
+  this is grounding, not input.
+
 ### Stack and structure
 
 - **Groq** (`https://api.groq.com`, OpenAI-compatible), JSON mode. Free tier, no card.
@@ -628,6 +704,17 @@ which is what `computeInvoice()` itself falls back to.
   beside the code. It stays markdown rather than a TypeScript module so adding a
   category is a one-line edit with no build step, and stays one file rather than a
   copy so what a person edits and what the model receives cannot drift apart.
+- `lib/style-examples.ts` — **pure** (v1.2): parses pasted or extracted text into the
+  stored example list, and re-cleans one that arrives over the wire. No filesystem, no
+  network, so both the settings form and the route can use exactly the same rules.
+- `lib/pdf-text.ts` — **browser only** (v1.2): pulls the text out of a sample invoice
+  with `pdfjs-dist`, loaded by dynamic `import()` so only the people who upload a PDF
+  fetch the library. Column gaps are marked as tabs, which is what lets
+  `lib/style-examples.ts` find the description inside a table row. Every failure is a
+  `PdfTextError` carrying a sentence that points at the paste box.
+- `components/settings/StyleExamplesField.tsx` — the collapsed, clearly optional
+  section of the business-profile form (v1.2). Last in the form, because it is the one
+  part that can be skipped outright.
 - `lib/rate-limit.ts` — **pure** token bucket; `now` is a parameter, not a clock read.
 - `lib/quick-fill-limiter.ts` — the shared limiter instance, kept apart so tests can
   reset it.
@@ -660,3 +747,15 @@ simply absent when it cannot be read; a non-JSON reply is reported, not
 thrown; the token bucket refills at the configured rate and never past its burst; the
 key never appears in a response; empty input and a rate-limited request both cost
 zero upstream calls.
+
+Style examples (`tests/style-examples.test.ts`, v1.2) are tested as pure text handling,
+with no pdf.js in sight: a typed list, a pasted invoice row with its serial number, HSN
+code, quantity and rate attached, and a whole pasted invoice whose seller block and
+totals band must not become "product names"; the count, per-example and total-character
+caps, with what did not fit *counted* rather than dropped in silence; and a list that
+arrived over the wire cleaned by the same rules, with anything that is not a list of
+strings meaning no examples at all. In `tests/quick-fill.test.ts` and
+`tests/quick-fill-route.test.ts`: the examples reach the model in the **user** turn,
+framed as a style guide rather than a shopping list, capped at
+`PROMPT_STYLE_EXAMPLE_LIMIT`; and with no examples — absent, empty, or malformed — the
+prompt is **identical** to the one built without the feature.

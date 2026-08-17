@@ -46,6 +46,7 @@ import {
   type QuickFillResponseBody,
 } from "@/lib/quick-fill";
 import { clientKeyFromHeaders } from "@/lib/rate-limit";
+import { sanitiseStyleExamples } from "@/lib/style-examples";
 
 /** Reads request headers and calls out, so it can never be prerendered. */
 export const dynamic = "force-dynamic";
@@ -140,6 +141,12 @@ export async function POST(request: Request): Promise<Response> {
       ? body.examples.trim().slice(0, MAX_EXAMPLES_CHARS)
       : "";
 
+  // The business's own item names, from its profile (§16, v1.2). Optional, and
+  // re-cleaned here rather than trusted: the browser sends what it has stored,
+  // and anything that reaches a prompt is bounded on this side of the wire too.
+  // Junk is no examples, never a refusal — this is grounding, not input.
+  const styleExamples = sanitiseStyleExamples(body.styleExamples);
+
   // Is there enough here to generate from? Checked before the key, before the
   // upstream call, and before a token of the shared free tier is spent — the
   // whole point of a heuristic rather than a model call is that deciding costs
@@ -199,6 +206,7 @@ export async function POST(request: Request): Promise<Response> {
           gstRate: named.gstRate,
           category: category || undefined,
           examples: examples || undefined,
+          styleExamples: styleExamples.length > 0 ? styleExamples : undefined,
           // Real Indian item names and HSN codes to draw on. Absent if the
           // catalogue could not be read, which costs authenticity and nothing
           // else.

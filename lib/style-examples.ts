@@ -336,12 +336,13 @@ export function parseStyleExamples(source: string): StyleExamplesParse {
  * profile restored from a backup file.
  *
  * Same cleaner, same caps, applied line by line so a single entry cannot smuggle
- * twenty in on newlines. Anything that is not a list of strings is no examples
- * at all, never an error: this is an optional extra, and a malformed one simply
- * means Quick Fill generates the way it always did.
+ * twenty in on newlines. Anything that is not a list of strings — including a
+ * bare string, which is the shape the *form* deals in and never the shape stored
+ * or sent — is no examples at all, never an error: this is an optional extra,
+ * and a malformed one simply means Quick Fill generates the way it always did.
+ * Use `parseStyleExamples` for text somebody typed.
  */
 export function sanitiseStyleExamples(value: unknown): string[] {
-  if (typeof value === "string") return parseStyleExamples(value).examples;
   if (!Array.isArray(value)) return [];
 
   const lines = value

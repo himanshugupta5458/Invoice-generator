@@ -12,7 +12,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "@/app/api/quick-fill/route";
-import { GROQ_COMPLETIONS_URL, QUICK_FILL_MODEL } from "@/lib/quick-fill";
+import {
+  GROQ_COMPLETIONS_URL,
+  PROMPT_STYLE_EXAMPLE_LIMIT,
+  QUICK_FILL_MODEL,
+} from "@/lib/quick-fill";
 import { quickFillLimiter } from "@/lib/quick-fill-limiter";
 import {
   computeQuickFillInvoice,
@@ -226,6 +230,61 @@ describe("POST /api/quick-fill — the happy path", () => {
     expect(sent.messages[0].content).toContain("8708");
     // The user's description stays the only untrusted text in the request.
     expect(sent.messages[1].content).not.toContain("Clutch plate");
+  });
+
+  it("grounds the descriptions in the profile's own item names when it has some", async () => {
+    mockGroq(JSON.stringify({ items: ITEMS }));
+
+    await POST(
+      request({
+        description: "artificial jewellery order",
+        styleExamples: ["Kundan Necklace Set", "Antique Finish Jhumka Pair"],
+      }),
+    );
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sent.messages[1].content).toContain("- Kundan Necklace Set");
+    expect(sent.messages[1].content).toContain("- Antique Finish Jhumka Pair");
+  });
+
+  it("re-cleans and caps style examples rather than trusting the browser", async () => {
+    mockGroq(JSON.stringify({ items: ITEMS }));
+
+    await POST(
+      request({
+        description: "artificial jewellery order",
+        styleExamples: [
+          "1. Kundan Necklace Set\t71171990\t2\t4,500.00",
+          ...Array.from({ length: 50 }, (_, index) => `Silver anklet ${index}`),
+        ],
+      }),
+    );
+
+    const prompt = JSON.parse(fetchMock.mock.calls[0][1].body as string).messages[1]
+      .content as string;
+    expect(prompt).toContain("- Kundan Necklace Set");
+    expect(prompt).not.toContain("71171990");
+    expect(
+      prompt.split("\n").filter((line: string) => line.startsWith("- ")).length,
+    ).toBe(PROMPT_STYLE_EXAMPLE_LIMIT);
+  });
+
+  it("generates as it always did when the profile has taught it nothing", async () => {
+    mockGroq(JSON.stringify({ items: ITEMS }));
+
+    // Absent, empty, and outright malformed all mean the same thing: no style
+    // grounding, no refusal, and a prompt identical to the one before v1.2.
+    const prompts: string[] = [];
+    for (const styleExamples of [undefined, [], "not a list", [1, 2, 3]]) {
+      fetchMock.mockClear();
+      await POST(request({ description: "artificial jewellery order", styleExamples }));
+      prompts.push(
+        JSON.parse(fetchMock.mock.calls[0][1].body as string).messages[1].content,
+      );
+    }
+
+    expect(new Set(prompts).size).toBe(1);
+    expect(prompts[0]).not.toContain("names its own products");
   });
 
   it("never puts the API key in the response", async () => {
