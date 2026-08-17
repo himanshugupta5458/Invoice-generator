@@ -20,12 +20,14 @@ import {
   MAX_GENERATED_ITEMS,
   QUICK_FILL_MODEL,
   QUICK_FILL_SYSTEM_PROMPT,
+  assessQuickFillDescription,
   buildQuickFillRequestBody,
   buildQuickFillSystemPrompt,
   buildQuickFillUserPrompt,
   impliedTargetFromMix,
   parseGstRateFromDescription,
   parseQuickFillMix,
+  summariseQuickFill,
 } from "@/lib/quick-fill";
 import { GST_SLABS } from "@/lib/types";
 
@@ -584,5 +586,119 @@ describe("impliedTargetFromMix", () => {
         { description: "a", quantity: 1, weight: 0.0001, gstRate: 0 },
       ]),
     ).toBe(1);
+  });
+});
+
+/**
+ * The "enough to generate from, or ask?" decision (§16).
+ *
+ * The rule is: a clear trade OR some specific product names. Either one tells
+ * the model what world it is in, and that is the only thing a generation cannot
+ * proceed without — a target and an item count are both optional, because the
+ * mix implies its own target and the prompt asks for 5-10 rows by default.
+ *
+ * The asymmetry matters more than the accuracy. A needless follow-up is the
+ * worse failure: being questioned about a description that was perfectly clear
+ * is what makes an assistant feel obstructive, while a thin generation can just
+ * be reworded and re-run. So these tests lean much harder on "does not ask
+ * needlessly" than on "always asks when it should".
+ */
+describe("assessQuickFillDescription", () => {
+  const sufficient = (text: string) =>
+    assessQuickFillDescription(text).sufficient;
+
+  it("asks when the description names neither a trade nor a product", () => {
+    // The example from the brief, and the shape it always takes: a quantity, a
+    // rupee figure, and no noun that says what was actually bought.
+    expect(sufficient("some stuff for my shop, 50000")).toBe(false);
+    expect(sufficient("50000 worth of items")).toBe(false);
+    expect(sufficient("8 items, 18% GST, 99654")).toBe(false);
+    expect(sufficient("generate a sample invoice")).toBe(false);
+    expect(sufficient("assorted goods for a customer, ₹1,20,000")).toBe(false);
+    expect(sufficient("")).toBe(false);
+  });
+
+  it("proceeds when a trade is named, even as one bare word", () => {
+    for (const text of [
+      "jewellery",
+      "necklaces",
+      "furniture for the new office",
+      "motor parts",
+      "groceries, 5%",
+      "hardware and building material, 18% GST, 200000",
+      "sarees",
+      "stationery for the office",
+    ]) {
+      expect(sufficient(text), text).toBe(true);
+    }
+  });
+
+  it("proceeds on sample product names it has never heard of", () => {
+    // The second half of "enough": no recognised trade word anywhere, but the
+    // user has plainly said what the things are.
+    const assessment = assessQuickFillDescription("gizmos and widgets");
+    expect(assessment.namedTrade).toBe(false);
+    expect(assessment.sufficient).toBe(true);
+  });
+
+  it("reads the reported failing description as sufficient", () => {
+    const assessment = assessQuickFillDescription(
+      "Artificial Jewelry Necklaces, 18% GST",
+    );
+    expect(assessment.sufficient).toBe(true);
+    expect(assessment.namedTrade).toBe(true);
+  });
+
+  it("is not fooled by a rate, a target or a count standing in for goods", () => {
+    // Each of these adds detail without adding a single word about what was
+    // bought, so none of them may tip a vague description over the line.
+    expect(sufficient("stuff")).toBe(false);
+    expect(sufficient("stuff, 18% GST")).toBe(false);
+    expect(sufficient("stuff, 18% GST, ₹50,000")).toBe(false);
+    expect(sufficient("stuff, 18% GST, ₹50,000, 10 items")).toBe(false);
+  });
+
+  it("sees through plurals when matching a trade", () => {
+    expect(assessQuickFillDescription("bangles").namedTrade).toBe(true);
+    expect(assessQuickFillDescription("tyres").namedTrade).toBe(true);
+    expect(assessQuickFillDescription("groceries").namedTrade).toBe(true);
+  });
+
+  it("reports the words it decided on, so a wrong call can be explained", () => {
+    const assessment = assessQuickFillDescription(
+      "some assorted stuff for my shop, 18% GST, ₹50,000",
+    );
+    expect(assessment.contentWords).toEqual([]);
+  });
+});
+
+describe("summariseQuickFill", () => {
+  it("reports the one slab when every row shares it", () => {
+    const understood = summariseQuickFill({
+      category: "Artificial jewellery",
+      items: [{ gstRate: 18 }, { gstRate: 18 }],
+      target: 99654,
+      targetRequested: true,
+    });
+    expect(understood).toEqual({
+      category: "Artificial jewellery",
+      gstRate: 18,
+      target: 99654,
+      targetRequested: true,
+      itemCount: 2,
+    });
+  });
+
+  it("omits the slab when the mix spans several", () => {
+    // Showing "18%" over an invoice that is part 18% and part 5% would be a
+    // confident lie in the one line the user is meant to trust.
+    const understood = summariseQuickFill({
+      items: [{ gstRate: 18 }, { gstRate: 5 }],
+      target: 1000,
+      targetRequested: false,
+    });
+    expect(understood.gstRate).toBeUndefined();
+    expect(understood.category).toBeUndefined();
+    expect(understood.targetRequested).toBe(false);
   });
 });

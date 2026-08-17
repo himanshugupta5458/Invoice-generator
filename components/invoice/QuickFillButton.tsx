@@ -5,13 +5,17 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { TextArea, TextInput } from "@/components/ui/Field";
 import { Notice } from "@/components/ui/Notice";
-import { formatINR } from "@/lib/format";
+import { formatINR, formatWholeINR } from "@/lib/format";
 import {
+  MAX_CATEGORY_CHARS,
   MAX_DESCRIPTION_CHARS,
+  MAX_EXAMPLES_CHARS,
+  isQuickFillClarify,
   parseGstRateFromDescription,
   type QuickFillErrorBody,
   type QuickFillResponseBody,
   type QuickFillRowError,
+  type QuickFillUnderstood,
 } from "@/lib/quick-fill";
 import type { InvoiceItemFormValues } from "@/lib/validation";
 
@@ -54,6 +58,8 @@ interface QuickFillSummary {
    * ₹12 below the target the user typed invites them to assume it matched.
    */
   gap: number;
+  /** What the server took the request to mean — the readout above the result. */
+  understood?: QuickFillUnderstood;
 }
 
 export interface QuickFillState {
@@ -63,6 +69,16 @@ export interface QuickFillState {
   setDescription: (value: string) => void;
   targetAmount: string;
   setTargetAmount: (value: string) => void;
+  /**
+   * Set when the server judged the description too vague to generate from. The
+   * panel expands a single follow-up step; nothing was generated and nothing
+   * went wrong, so this is deliberately not an `error`.
+   */
+  clarifyReason: string | null;
+  category: string;
+  setCategory: (value: string) => void;
+  examples: string;
+  setExamples: (value: string) => void;
   /** A blocking problem — nothing was added. */
   error: string | null;
   /** What the last successful generation produced. */
@@ -86,6 +102,9 @@ export function useQuickFill(
   const [busy, setBusy] = useState(false);
   const [description, setDescription] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
+  const [clarifyReason, setClarifyReason] = useState<string | null>(null);
+  const [category, setCategory] = useState("");
+  const [examples, setExamples] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<QuickFillSummary | null>(null);
 
@@ -149,6 +168,11 @@ export function useQuickFill(
           description: trimmed,
           targetAmount: target,
           isIntraState,
+          // Only sent once the follow-up has been asked and answered. Sending a
+          // category is also what tells the route not to re-run the check that
+          // asked for it, so this must stay empty until the user has answered.
+          category: category.trim() || undefined,
+          examples: examples.trim() || undefined,
         }),
       });
 
@@ -164,6 +188,14 @@ export function useQuickFill(
         return;
       }
 
+      // Not enough to go on. A step in the flow, not a failure: the panel opens
+      // one follow-up asking for everything missing at once, and nothing has
+      // been generated or charged against the free tier.
+      if (isQuickFillClarify(body)) {
+        setClarifyReason(body.reason);
+        return;
+      }
+
       const data = body as QuickFillResponseBody | null;
       if (!data || !Array.isArray(data.items) || data.items.length === 0) {
         setError("Quick Fill returned no usable items. Try rewording it.");
@@ -171,12 +203,18 @@ export function useQuickFill(
       }
 
       onGenerate(data.items);
+      // Answered — the follow-up collapses back and its fields are cleared, so
+      // the next description starts from the simple one-field panel again.
+      setClarifyReason(null);
+      setCategory("");
+      setExamples("");
       setSummary({
         added: data.items.length,
         rejected: Array.isArray(data.rejected) ? data.rejected : [],
         total: typeof data.total === "number" ? data.total : 0,
         gap: typeof data.gap === "number" ? data.gap : 0,
         target,
+        understood: data.understood,
       });
     } catch (cause) {
       console.error("Quick Fill request failed", cause);
@@ -193,6 +231,11 @@ export function useQuickFill(
     setDescription,
     targetAmount,
     setTargetAmount,
+    clarifyReason,
+    category,
+    setCategory,
+    examples,
+    setExamples,
     error,
     summary,
     toggle: () => setOpen((value) => !value),
@@ -200,6 +243,9 @@ export function useQuickFill(
       setOpen(false);
       setError(null);
       setSummary(null);
+      setClarifyReason(null);
+      setCategory("");
+      setExamples("");
     },
     generate,
   };
@@ -240,11 +286,24 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
   const fieldId = useId();
   const descriptionId = `${fieldId}-description`;
   const targetId = `${fieldId}-target`;
+  const categoryId = `${fieldId}-category`;
+  const examplesId = `${fieldId}-examples`;
+  const clarifyHeadingId = `${fieldId}-clarify`;
 
   if (!state.open) return null;
 
   const remaining = MAX_DESCRIPTION_CHARS - state.description.trim().length;
   const locked = disabled || state.busy;
+
+  /**
+   * This panel lives inside the invoice `<form>`, so Enter in any field here
+   * would otherwise submit the invoice rather than generate rows.
+   */
+  const submitOnEnter = (event: React.KeyboardEvent) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (!locked) void state.generate();
+  };
 
   return (
     <div
@@ -329,19 +388,75 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
             className="text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             value={state.targetAmount}
             onChange={(event) => state.setTargetAmount(event.target.value)}
-            // This panel sits inside the invoice <form>, so Enter here would
-            // otherwise submit the invoice rather than generate rows.
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              event.preventDefault();
-              if (!locked) void state.generate();
-            }}
+            onKeyDown={submitOnEnter}
           />
           <p className="text-xs leading-relaxed text-ink-500">
             Including GST. Whole rupees. Approached, not guaranteed.
           </p>
         </div>
       </div>
+
+      {/* Step two, when there is one. It expands in place rather than opening a
+          dialog — the description it is about is still on screen above it, and a
+          modal would hide the thing being clarified. Everything missing is asked
+          for at once; drip-feeding one question at a time is what makes these
+          flows feel like an interrogation. */}
+      {state.clarifyReason && (
+        <div
+          className="mt-4 rounded-lg border border-brand-200 bg-brand-50/70 p-3.5"
+          role="group"
+          aria-labelledby={clarifyHeadingId}
+        >
+          <p
+            id={clarifyHeadingId}
+            className="text-[0.8125rem] font-semibold leading-5 text-brand-900"
+          >
+            One more thing
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-brand-900/80">
+            {state.clarifyReason}
+          </p>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor={categoryId}
+                className="text-[0.8125rem] font-medium leading-5 text-ink-700"
+              >
+                Product category
+              </label>
+              <TextInput
+                id={categoryId}
+                maxLength={MAX_CATEGORY_CHARS}
+                disabled={locked}
+                placeholder="e.g. artificial jewellery"
+                value={state.category}
+                onChange={(event) => state.setCategory(event.target.value)}
+                onKeyDown={submitOnEnter}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor={examplesId}
+                className="text-[0.8125rem] font-medium leading-5 text-ink-700"
+              >
+                A couple of examples{" "}
+                <span className="font-normal text-ink-400">(optional)</span>
+              </label>
+              <TextInput
+                id={examplesId}
+                maxLength={MAX_EXAMPLES_CHARS}
+                disabled={locked}
+                placeholder="e.g. kundan necklace, jhumka"
+                value={state.examples}
+                onChange={(event) => state.setExamples(event.target.value)}
+                onKeyDown={submitOnEnter}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button
@@ -350,7 +465,11 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
           aria-busy={state.busy}
           onClick={() => void state.generate()}
         >
-          {state.busy ? "Generating…" : "Generate items"}
+          {state.busy
+            ? "Generating…"
+            : state.clarifyReason
+              ? "Continue"
+              : "Generate items"}
         </Button>
         <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-500">
           Sample rows for testing — not verified purchase data. The prices are
@@ -381,6 +500,8 @@ function QuickFillSummaryNote({ summary }: { summary: QuickFillSummary }) {
       size="sm"
       className="mt-3"
     >
+      {summary.understood && <UnderstoodChips understood={summary.understood} />}
+
       <p>
         Added {summary.added} {summary.added === 1 ? "item" : "items"} totalling{" "}
         <span className="font-medium tabular-nums">
@@ -422,6 +543,51 @@ function QuickFillSummaryNote({ summary }: { summary: QuickFillSummary }) {
         </>
       )}
     </Notice>
+  );
+}
+
+/**
+ * What the AI understood, in four chips: "Jewellery · 18% GST · ~₹99,654 · 8 items".
+ *
+ * This is the trust line. The failure this feature actually had was rows of
+ * entirely the wrong goods — an invoice for jewellery coming back as televisions
+ * and office chairs — and noticing that meant reading every description. One
+ * chip saying "Furniture" when you asked for jewellery is caught at a glance,
+ * before any of the rows are read.
+ *
+ * Only what the server acted on goes in here. The category is the model's own
+ * word for the trade it chose (or the one the user gave in the follow-up), which
+ * is exactly the thing capable of being wrong; the rest is the figure aimed at,
+ * the slab actually applied, and how many rows arrived.
+ */
+function UnderstoodChips({ understood }: { understood: QuickFillUnderstood }) {
+  const chips: string[] = [];
+
+  if (understood.category) chips.push(understood.category);
+  if (understood.gstRate !== undefined) chips.push(`${understood.gstRate}% GST`);
+  chips.push(
+    // "~" only when the figure was inferred from the mix rather than asked for,
+    // so a requested target is never shown as though it were an estimate.
+    understood.targetRequested
+      ? `₹${formatWholeINR(understood.target)} target`
+      : `~₹${formatWholeINR(understood.target)}`,
+  );
+  chips.push(
+    `${understood.itemCount} ${understood.itemCount === 1 ? "item" : "items"}`,
+  );
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      <span className="sr-only">Quick Fill understood this as:</span>
+      {chips.map((chip) => (
+        <span
+          key={chip}
+          className="inline-flex items-center rounded-md bg-white/70 px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ring-black/5"
+        >
+          {chip}
+        </span>
+      ))}
+    </div>
   );
 }
 

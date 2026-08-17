@@ -61,6 +61,23 @@ export function formatINR(x: number): string {
   return `${sign}${groupIndian(intPart)}.${decPart}`;
 }
 
+/**
+ * The same Indian grouping without the paise, for figures that are whole rupees
+ * by definition rather than by rounding.
+ *
+ * `formatINR` is the right function for money on an invoice, where two decimal
+ * places are part of the convention and dropping them would look like an error.
+ * This is for the places that show a *target* — a figure §6 requires to be a
+ * whole number of rupees, and which the route refuses outright if it is not. In
+ * a compact readout ("₹99,654 target") the ".00" is two characters of noise
+ * saying something already guaranteed.
+ */
+export function formatWholeINR(x: number): string {
+  const value = Number.isFinite(x) ? Math.round(x) : 0;
+  const sign = value < 0 ? "-" : "";
+  return `${sign}${groupIndian(String(Math.abs(value)))}`;
+}
+
 function groupIndian(digits: string): string {
   if (digits.length <= 3) return digits;
   const last3 = digits.slice(-3);

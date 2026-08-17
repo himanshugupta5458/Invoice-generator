@@ -616,3 +616,123 @@ describe("POST /api/quick-fill — category adherence", () => {
     expect(system).toContain("THE ITEMS ARE THE GOODS DESCRIBED");
   });
 });
+
+/**
+ * The "ask before generating" step (§16).
+ *
+ * The contract that matters is not just *that* it asks, but that asking is
+ * free: the whole reason the decision is a heuristic rather than a model call is
+ * that finding out whether to spend a generation must not itself spend one. So
+ * every test here asserts on `fetchMock` as well as on the body.
+ */
+describe("POST /api/quick-fill — asking for what is missing", () => {
+  it("asks instead of generating when the description says nothing about goods", async () => {
+    const response = await POST(
+      request({ description: "some stuff for my shop, 50000" }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.needsInfo).toBe(true);
+    expect(typeof body.reason).toBe("string");
+    expect(body.items).toBeUndefined();
+
+    // Nothing was generated, and nothing was spent finding that out.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("generates without asking when a trade is named", async () => {
+    mockGroq(JSON.stringify({ category: "Furniture", items: ITEMS }));
+
+    const response = await POST(request({ description: "office furniture" }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).needsInfo).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("generates once the follow-up is answered, without asking again", async () => {
+    mockGroq(JSON.stringify({ category: "Artificial jewellery", items: ITEMS }));
+
+    // The same description that was refused above, now carrying an answer.
+    const response = await POST(
+      request({
+        description: "some stuff for my shop, 50000",
+        category: "artificial jewellery",
+        examples: "kundan necklace, jhumka",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.needsInfo).toBeUndefined();
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Both answers reach the model, and as binding rather than as background.
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = sent.messages.find((message) => message.role === "user")!.content;
+    expect(user).toContain("artificial jewellery");
+    expect(user).toContain("kundan necklace, jhumka");
+    expect(user).toContain("Every item must belong to that trade");
+  });
+
+  it("prefers the user's own category over the model's in the readout", async () => {
+    mockGroq(JSON.stringify({ category: "Furniture", items: ITEMS }));
+
+    const body = await (
+      await POST(
+        request({
+          description: "some stuff, 50000",
+          category: "Artificial jewellery",
+        }),
+      )
+    ).json();
+
+    expect(body.understood.category).toBe("Artificial jewellery");
+  });
+});
+
+describe("POST /api/quick-fill — the understood readout", () => {
+  it("reports the category, slab, target and count the server acted on", async () => {
+    mockGroq(JSON.stringify({ category: "Artificial jewellery", items: ITEMS }));
+
+    const body = await (
+      await POST(
+        request({ description: "jewellery, 18% GST", targetAmount: 99654 }),
+      )
+    ).json();
+
+    expect(body.understood).toEqual({
+      category: "Artificial jewellery",
+      gstRate: 18,
+      target: 99654,
+      targetRequested: true,
+      itemCount: body.items.length,
+    });
+  });
+
+  it("marks a target the mix implied rather than one the user asked for", async () => {
+    mockGroq(JSON.stringify({ category: "Furniture", items: ITEMS }));
+
+    const body = await (await POST(request({ description: "furniture" }))).json();
+
+    expect(body.understood.targetRequested).toBe(false);
+    expect(body.understood.target).toBe(body.target);
+  });
+
+  it("omits the slab when the generated rows span several", async () => {
+    mockGroq(JSON.stringify({ items: MIXED_ITEMS }));
+
+    const body = await (
+      await POST(request({ description: "furniture for a flat" }))
+    ).json();
+
+    expect(body.understood.gstRate).toBeUndefined();
+    // No category from the model and none from the user means none shown, not
+    // an empty chip.
+    expect(body.understood.category).toBeUndefined();
+  });
+});

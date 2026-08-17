@@ -106,6 +106,17 @@ export interface QuickFillInput {
    */
   catalog?: string;
   /**
+   * The trade, when the user named it in the follow-up step. Present only after
+   * `assessQuickFillDescription` judged the description too vague to generate
+   * from and the panel asked.
+   */
+  category?: string;
+  /**
+   * A couple of example products, from the same follow-up step. Free text — a
+   * comma-separated list is what the field asks for, but nothing depends on it.
+   */
+  examples?: string;
+  /**
    * Overrides `QUICK_FILL_MODEL`. Comes from `GROQ_MODEL`, read by the route —
    * this module never touches `process.env` (§16), which is also what lets a
    * test pin the model without stubbing the environment. Blank or absent means
@@ -188,6 +199,35 @@ export interface QuickFillResponseBody {
    * than left for them to spot.
    */
   gap: number;
+  /** What the request was taken to mean, for the summary line beside the rows. */
+  understood: QuickFillUnderstood;
+}
+
+/**
+ * The other 200 the route can return: the description said too little, so
+ * nothing was generated and the panel should ask.
+ *
+ * A 200 rather than a 4xx because nothing went wrong — this is a step in the
+ * flow, not a refusal, and the panel renders it as a question rather than as an
+ * error. Discriminated by the presence of `needsInfo`, so a client can tell the
+ * two bodies apart without a status-code convention.
+ */
+export interface QuickFillClarifyBody {
+  needsInfo: true;
+  /** One sentence saying what is missing, shown above the follow-up fields. */
+  reason: string;
+}
+
+/** Shown when the description named neither a trade nor any product. */
+export const QUICK_FILL_CLARIFY_REASON =
+  "That description does not say what was bought — Quick Fill needs the kind of product before it can draft rows.";
+
+export function isQuickFillClarify(
+  body: unknown,
+): body is QuickFillClarifyBody {
+  return Boolean(
+    body && typeof body === "object" && "needsInfo" in body && (body as QuickFillClarifyBody).needsInfo,
+  );
 }
 
 /** Every non-2xx reply from the route has this shape. */
@@ -372,6 +412,215 @@ export function parseGstRateFromDescription(
   return { gstRate: rate };
 }
 
+/* ── Is there enough here to generate from? ────────────────────────────────── */
+
+/** Bound on the follow-up's example list, which goes into the prompt. */
+export const MAX_EXAMPLES_CHARS = 200;
+
+/**
+ * Words that carry no information about what was bought.
+ *
+ * Three kinds, and the third is the interesting one: articles and prepositions;
+ * the vocabulary of asking for an invoice at all ("generate", "sample", "rows");
+ * and the words people reach for *instead of* naming goods — "stuff", "things",
+ * "items", "assorted", "sundry". A description made only of these is the case
+ * this whole check exists for.
+ *
+ * "shop", "store" and "business" are here deliberately. They name a venue, not a
+ * trade: "my shop" says nothing, while "hardware shop" still has "hardware" left
+ * standing once the venue is removed.
+ */
+const UNINFORMATIVE_WORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "for", "with", "to", "in", "on", "at",
+  "from", "by", "my", "our", "me", "us", "we", "i", "it", "its", "this", "that",
+  "these", "those", "is", "are", "was", "were", "be", "some", "few", "couple",
+  "several", "various", "assorted", "misc", "miscellaneous", "sundry", "general",
+  "random", "different", "other", "stuff", "thing", "things", "item", "items",
+  "goods", "product", "products", "material", "materials", "supplies", "worth",
+  "total", "amount", "amounts", "rupees", "rupee", "rs", "inr", "gst", "tax",
+  "taxes", "slab", "please", "generate", "make", "create", "add", "need", "want",
+  "give", "get", "invoice", "invoices", "bill", "billing", "sample", "samples",
+  "test", "testing", "dummy", "fake", "demo", "data", "row", "rows", "line",
+  "lines", "entry", "entries", "shop", "store", "business", "company", "firm",
+  "customer", "client", "party", "order", "orders", "purchase", "purchases",
+  "buy", "bought", "sell", "sold", "sale", "about", "around", "approx",
+  "approximately", "roughly", "each", "per", "value", "price", "prices", "cost",
+]);
+
+/**
+ * Words that name a trade outright.
+ *
+ * Mirrors the sections of `lib/data/indian-invoice-items.md` plus the obvious
+ * synonyms and a handful of common trades the catalogue does not cover yet — a
+ * description naming one of these is unambiguous even on its own ("necklaces").
+ *
+ * **Extend this alongside the catalogue.** A trade added there and not here
+ * still generates fine; it just may be asked a follow-up it did not need.
+ */
+const TRADE_WORDS = new Set([
+  // Artificial / imitation jewellery
+  "jewellery", "jewelry", "jewel", "jewels", "imitation", "necklace", "bangle",
+  "bangles", "earring", "earrings", "jhumka", "jhumkas", "mangalsutra", "anklet",
+  "payal", "kundan", "meenakari", "choker", "pendant", "bracelet", "nosepin",
+  // Motor vehicle parts
+  "motor", "vehicle", "vehicles", "car", "cars", "bike", "bikes", "auto",
+  "automobile", "automotive", "spare", "spares", "brake", "brakes", "clutch",
+  "tyre", "tyres", "tire", "tires", "engine", "battery", "batteries",
+  "lubricant", "lubricants", "gasket", "radiator", "bearing", "bearings",
+  // Textiles & apparel
+  "textile", "textiles", "apparel", "garment", "garments", "clothing", "clothes",
+  "saree", "sarees", "sari", "saris", "kurta", "kurtas", "kurti", "shirt",
+  "shirts", "jeans", "fabric", "fabrics", "cloth", "dress", "dresses", "salwar",
+  "kameez", "lehenga", "shawl", "shawls", "bedsheet", "bedsheets", "lungi",
+  "boutique",
+  // Furniture
+  "furniture", "table", "tables", "chair", "chairs", "sofa", "sofas", "bed",
+  "beds", "almirah", "wardrobe", "desk", "desks", "cupboard", "shelf", "shelves",
+  "bookshelf", "mattress", "mattresses", "seating",
+  // Electronics & appliances
+  "electronic", "electronics", "appliance", "appliances", "tv", "television",
+  "fan", "fans", "mobile", "phone", "phones", "smartphone", "laptop", "laptops",
+  "computer", "computers", "fridge", "refrigerator", "ac", "mixer", "grinder",
+  "inverter", "heater", "kettle", "purifier", "cooktop",
+  // FMCG & groceries
+  "grocery", "groceries", "fmcg", "kirana", "provision", "provisions", "food",
+  "foods", "rice", "dal", "pulses", "oil", "tea", "coffee", "sugar", "flour",
+  "atta", "masala", "spice", "spices", "ghee", "salt", "detergent", "snacks",
+  // Hardware & building material
+  "hardware", "building", "construction", "cement", "steel", "paint", "paints",
+  "plywood", "pipe", "pipes", "tile", "tiles", "tmt", "sanitary", "plumbing",
+  "electrical", "wire", "wires", "nail", "nails", "screw", "screws", "putty",
+  "timber", "sand",
+  // Stationery & office
+  "stationery", "stationary", "office", "paper", "pen", "pens", "notebook",
+  "notebooks", "register", "registers", "file", "files", "folder", "printer",
+  "cartridge", "envelope", "envelopes", "marker", "markers", "stapler",
+  // Common trades the catalogue does not carry yet
+  "pharmacy", "pharmaceutical", "medicine", "medicines", "medical", "surgical",
+  "footwear", "shoe", "shoes", "sandal", "sandals", "chappal", "cosmetic",
+  "cosmetics", "toy", "toys", "sports", "book", "books", "stationer",
+  "restaurant", "catering", "hotel", "bakery", "machinery", "machine", "tool",
+  "tools", "hardware", "packaging", "plastic", "glass", "crockery", "utensil",
+  "utensils",
+]);
+
+/** Strip a plural so "necklaces" finds "necklace". Crude on purpose. */
+function singularise(word: string): string[] {
+  const forms = [word];
+  if (word.endsWith("ies") && word.length > 4) {
+    forms.push(`${word.slice(0, -3)}y`);
+  }
+  if (word.endsWith("es") && word.length > 3) forms.push(word.slice(0, -2));
+  if (word.endsWith("s") && word.length > 2) forms.push(word.slice(0, -1));
+  return forms;
+}
+
+export interface QuickFillAssessment {
+  /** True when there is enough here to generate from without asking anything. */
+  sufficient: boolean;
+  /**
+   * The words left after the numbers, tax talk and filler are removed — what the
+   * decision was actually made on. Exported for the tests and for a log line;
+   * nothing in the UI shows it.
+   */
+  contentWords: string[];
+  /** True when one of those words names a trade outright. */
+  namedTrade: boolean;
+}
+
+/**
+ * Decide whether a description says enough to generate from (§16).
+ *
+ * "Enough" is a clear trade OR some specific product names — either one tells
+ * the model what world it is in, and that is the only thing the generation
+ * genuinely cannot proceed without. A target and an item count are useful and
+ * neither is required: the mix implies its own target, and the prompt asks for
+ * 5-10 rows by default.
+ *
+ * A cheap heuristic rather than a model call, for two reasons. It has to be fast
+ * enough to sit in front of the common case, which is *sufficient* — a round
+ * trip to decide whether to make a round trip is a poor trade. And it must not
+ * spend the shared free tier deciding not to spend the shared free tier.
+ *
+ * It is deliberately biased towards proceeding. A needless follow-up is a worse
+ * failure than a thin generation: the user can always reword and regenerate, but
+ * being questioned about a description that was perfectly clear is the thing
+ * that makes an assistant feel obstructive. So a single recognised trade word is
+ * enough, and so are any two words that survive the filter.
+ */
+export function assessQuickFillDescription(
+  description: string,
+): QuickFillAssessment {
+  const stripped = description
+    .toLowerCase()
+    // Tax rates and bare percentages: "18%", "12 percent", "gst 5".
+    .replace(/\b(\d+(?:\.\d+)?)\s*(?:%|percent\b|pct\b)/g, " ")
+    .replace(/\bgst\s*[:=-]?\s*\d+(?:\.\d+)?\b/g, " ")
+    // Money and counts, with or without separators or a currency mark.
+    .replace(/[₹$]\s*[\d,]+(?:\.\d+)?/g, " ")
+    .replace(/\b[\d,]+(?:\.\d+)?\s*(?:k|lakh|lakhs|cr|crore|crores)?\b/g, " ")
+    .replace(/[^a-z\s]+/g, " ");
+
+  const contentWords = stripped
+    .split(/\s+/)
+    .filter((word) => word.length > 1 && !UNINFORMATIVE_WORDS.has(word));
+
+  const namedTrade = contentWords.some((word) =>
+    singularise(word).some((form) => TRADE_WORDS.has(form)),
+  );
+
+  return {
+    // A named trade, or two words specific enough to have survived — which is
+    // what "they listed some product names" looks like after filtering.
+    sufficient: namedTrade || contentWords.length >= 2,
+    contentWords,
+    namedTrade,
+  };
+}
+
+/* ── What the request was understood to be ─────────────────────────────────── */
+
+export interface QuickFillUnderstood {
+  /** The trade, as the model named it or as the user gave it in the follow-up. */
+  category?: string;
+  /** The one slab every row carries, or absent when the mix spans several. */
+  gstRate?: number;
+  /** The figure aimed at, whether requested or implied by the mix. */
+  target: number;
+  /** False when the target came from the mix rather than from the user. */
+  targetRequested: boolean;
+  itemCount: number;
+}
+
+/**
+ * The one-line readout shown with the results: "Jewellery · 18% · ~₹99,654 · 8 items".
+ *
+ * It exists for trust, and specifically for the failure this feature had: rows
+ * of the wrong goods entirely. Reading eight descriptions to notice the category
+ * is wrong is work; reading one chip is not. Everything in it is what the server
+ * actually acted on, not what the user typed — a category the model chose is the
+ * thing worth showing back, because it is the thing that can be wrong.
+ */
+export function summariseQuickFill(args: {
+  category?: string;
+  items: ReadonlyArray<{ gstRate: number }>;
+  target: number;
+  targetRequested: boolean;
+}): QuickFillUnderstood {
+  const slabs = new Set(args.items.map((item) => item.gstRate));
+  const category = args.category?.trim();
+
+  return {
+    category: category || undefined,
+    // Only when there is one, because "18%" against a mixed invoice would be a
+    // confident lie; the panel omits it rather than saying "mixed".
+    gstRate: slabs.size === 1 ? [...slabs][0] : undefined,
+    target: args.target,
+    targetRequested: args.targetRequested,
+    itemCount: args.items.length,
+  };
+}
+
 /**
  * The user turn: the description, plus the arithmetic target when one was given.
  *
@@ -383,6 +632,27 @@ export function parseGstRateFromDescription(
 export function buildQuickFillUserPrompt(input: QuickFillInput): string {
   const description = input.description.trim();
   const lines = [`Purchase description: ${description}`];
+
+  // Answers to the follow-up the panel asks when a description says too little
+  // to generate from. They are stated after the description and as binding,
+  // because they exist precisely to settle what the description left open.
+  const category = input.category?.trim();
+  const examples = input.examples?.trim();
+  if (category || examples) {
+    lines.push("");
+    if (category) {
+      lines.push(
+        `The user has since said the trade is: ${category}.`,
+        "Every item must belong to that trade.",
+      );
+    }
+    if (examples) {
+      lines.push(
+        `They gave these as examples of what was bought: ${examples}.`,
+        "Return items of that kind — the examples themselves are fair game.",
+      );
+    }
+  }
 
   if (input.targetAmount !== undefined) {
     lines.push(

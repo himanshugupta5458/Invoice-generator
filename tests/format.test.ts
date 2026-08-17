@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   amountInWords,
   formatINR,
+  formatWholeINR,
   gstinStateCode,
   isValidGstin,
   round2,
@@ -125,5 +126,29 @@ describe("gstinStateCode", () => {
 
   it("returns null for an invalid GSTIN", () => {
     expect(gstinStateCode("nonsense")).toBe(null);
+  });
+});
+
+describe("formatWholeINR", () => {
+  it("groups the Indian way with no paise", () => {
+    expect(formatWholeINR(1250)).toBe("1,250");
+    expect(formatWholeINR(1234567)).toBe("12,34,567");
+    expect(formatWholeINR(99654)).toBe("99,654");
+    expect(formatWholeINR(0)).toBe("0");
+    expect(formatWholeINR(999)).toBe("999");
+  });
+
+  it("rounds to the nearest rupee rather than truncating", () => {
+    expect(formatWholeINR(1250.4)).toBe("1,250");
+    expect(formatWholeINR(1250.5)).toBe("1,251");
+  });
+
+  it("keeps a negative sign outside the grouping", () => {
+    expect(formatWholeINR(-1234567)).toBe("-12,34,567");
+  });
+
+  it("is 0 for anything that is not a finite number", () => {
+    expect(formatWholeINR(Number.NaN)).toBe("0");
+    expect(formatWholeINR(Number.POSITIVE_INFINITY)).toBe("0");
   });
 });

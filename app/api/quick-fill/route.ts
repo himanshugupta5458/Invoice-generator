@@ -29,13 +29,19 @@ import { quickFillLimiter } from "@/lib/quick-fill-limiter";
 import { solveQuickFillRates } from "@/lib/quick-fill-solver";
 import {
   GROQ_COMPLETIONS_URL,
+  MAX_CATEGORY_CHARS,
   MAX_DESCRIPTION_CHARS,
+  MAX_EXAMPLES_CHARS,
   MAX_TARGET_AMOUNT,
+  QUICK_FILL_CLARIFY_REASON,
   QUICK_FILL_MODEL,
+  assessQuickFillDescription,
   buildQuickFillRequestBody,
   impliedTargetFromMix,
   parseGstRateFromDescription,
   parseQuickFillMix,
+  summariseQuickFill,
+  type QuickFillClarifyBody,
   type QuickFillErrorBody,
   type QuickFillResponseBody,
 } from "@/lib/quick-fill";
@@ -123,6 +129,32 @@ export async function POST(request: Request): Promise<Response> {
     targetAmount = raw;
   }
 
+  // The follow-up step's answers, when the panel has already asked. Bounded
+  // because both go into the prompt.
+  const category =
+    typeof body.category === "string"
+      ? body.category.trim().slice(0, MAX_CATEGORY_CHARS)
+      : "";
+  const examples =
+    typeof body.examples === "string"
+      ? body.examples.trim().slice(0, MAX_EXAMPLES_CHARS)
+      : "";
+
+  // Is there enough here to generate from? Checked before the key, before the
+  // upstream call, and before a token of the shared free tier is spent — the
+  // whole point of a heuristic rather than a model call is that deciding costs
+  // nothing. A category supplied by the follow-up settles it outright: the user
+  // has just answered this exact question, and asking again would be a loop.
+  if (category === "") {
+    const assessment = assessQuickFillDescription(description);
+    if (!assessment.sufficient) {
+      return Response.json({
+        needsInfo: true,
+        reason: QUICK_FILL_CLARIFY_REASON,
+      } satisfies QuickFillClarifyBody);
+    }
+  }
+
   // A slab named in the description ("Motor Parts 5%") pins every line to it.
   // Checked here, before the upstream call, because "15%" is a typo the user can
   // fix in a second and there is no reason to spend a Groq request finding out.
@@ -165,6 +197,8 @@ export async function POST(request: Request): Promise<Response> {
           description,
           targetAmount,
           gstRate: named.gstRate,
+          category: category || undefined,
+          examples: examples || undefined,
           // Real Indian item names and HSN codes to draw on. Absent if the
           // catalogue could not be read, which costs authenticity and nothing
           // else.
@@ -271,5 +305,13 @@ export async function POST(request: Request): Promise<Response> {
     total: solved.total,
     target: solved.target,
     gap: solved.gap,
+    // What the server acted on, shown back beside the rows. The user's own
+    // category wins over the model's when they took the trouble to give one.
+    understood: summariseQuickFill({
+      category: category || mix.category,
+      items: solved.items,
+      target: solved.target,
+      targetRequested: targetAmount !== undefined,
+    }),
   } satisfies QuickFillResponseBody);
 }
