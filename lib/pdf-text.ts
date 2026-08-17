@@ -34,13 +34,17 @@ export const MAX_PDF_PAGES = 10;
  * Horizontal gap, in PDF points, at which two pieces of text are taken to be in
  * different columns rather than in the same phrase.
  *
- * This matters more than it looks: `lib/style-examples.ts` finds the description
- * inside a table row by splitting the row on its column boundaries, so a row
- * flattened into one run of single-spaced words would arrive as
- * "Kundan Necklace Set 71171990 2 4,500.00" with nothing to split on. Marking the
- * gaps as tabs here is what makes that row parse into a product name. Six points
- * is roughly two spaces at 11pt — wider than word spacing, narrower than any real
- * column gutter.
+ * Six points is roughly two spaces at 11pt — wider than word spacing, narrower
+ * than any real column gutter. Marking a gap as a tab gives
+ * `lib/style-examples.ts` a boundary to split the row on, which is the cleanest
+ * way to find the description inside it.
+ *
+ * It is a hint, not a guarantee, and the parser is built to survive it failing.
+ * `width` is what the producer reports for a text run, and some report the
+ * layout box rather than the glyphs — measured against a PDF written by
+ * `@react-pdf/renderer`, every gutter collapsed and the whole row came back as
+ * one run of single-spaced words. Recovering the name from *that* is the job of
+ * the trailing-figure stripping on the other side.
  */
 const COLUMN_GAP_POINTS = 6;
 

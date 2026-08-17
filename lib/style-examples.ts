@@ -69,6 +69,17 @@ const COLUMN_SPLIT = /\t|\s{2,}|\s*\|\s*/;
 /** "1.", "12)", "-", "•" — the line's position in a list, not part of its name. */
 const LEADING_MARKER = /^\s*(?:\d{1,3}\s*[.)\]:-]|[-*•·–—>])\s+/;
 
+/**
+ * A bare serial number, with no punctuation to mark it as one: "1 Kundan
+ * Necklace Set 71171990 2 4,500.00".
+ *
+ * Stripped only from a line that already lost figures off its end — that is,
+ * only from something shaped like a table row, which is the one context where a
+ * leading integer is a row number rather than part of the name. "12 Inch Steel
+ * Pipe" pasted on its own keeps its 12.
+ */
+const LEADING_SERIAL = /^\d{1,3}\s+(?=[A-Za-z])/;
+
 /** Punctuation that survives a column split but belongs to no product name. */
 const EDGE_PUNCTUATION = /^[\s\-–—:;,.|*•·]+|[\s\-–—:;,.|*•·]+$/g;
 
@@ -202,7 +213,18 @@ export function cleanStyleExample(line: string): string | undefined {
       .map((part) => part.trim())
       .find((part) => hasName(part) && !isFurniture(part)) ?? "";
 
-  const named = stripTrailingFigures(column.replace(/\s+/g, " ").trim())
+  // A PDF's columns do not always survive extraction as columns: the gaps
+  // between them depend on the producer, and a whole row can arrive as one run
+  // of single-spaced words. Stripping the figures off the end is what recovers
+  // the name in that case, and a leading serial number is only a serial number
+  // when the line turned out to be a row like that.
+  const collapsed = column.replace(/\s+/g, " ").trim();
+  const withoutFigures = stripTrailingFigures(collapsed);
+  const named = (
+    withoutFigures === collapsed
+      ? withoutFigures
+      : withoutFigures.replace(LEADING_SERIAL, "")
+  )
     .replace(EDGE_PUNCTUATION, "")
     .trim();
 

@@ -96,6 +96,22 @@ describe("parseStyleExamples — a pasted invoice row", () => {
     expect(examples).toEqual(["Antique Finish Jhumka Pair"]);
   });
 
+  it("reads a row that arrived with its columns flattened into spaces", () => {
+    // What actually comes out of pdf.js for some producers: one run of
+    // single-spaced words, serial number and all, with nothing left to split on.
+    const { examples } = parseStyleExamples(
+      "1 Kundan Necklace Set 71171990 2 4,500.00 9,000.00",
+    );
+    expect(examples).toEqual(["Kundan Necklace Set"]);
+  });
+
+  it("keeps a leading number on a line that is not a row", () => {
+    // The serial number is only stripped from something already shaped like a
+    // table row; a plain list entry keeps the number it starts with.
+    const { examples } = parseStyleExamples("12 Inch Steel Pipe\n2 Ton Split AC");
+    expect(examples).toEqual(["12 Inch Steel Pipe", "2 Ton Split AC"]);
+  });
+
   it("drops a quantity and its unit when they trail the name", () => {
     const { examples } = parseStyleExamples("Oxidised Silver Anklet 2 nos 1,800");
     expect(examples).toEqual(["Oxidised Silver Anklet"]);
