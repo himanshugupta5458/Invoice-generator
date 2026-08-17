@@ -31,6 +31,14 @@ export interface BusinessProfile {
   nextInvoiceNumber: number; // e.g. 1
   accentColor: string; // hex, e.g. "#7a5230" — drives invoice theming
   termsAndConditions?: string; // T&C used by every invoice; editable only in /settings
+  /**
+   * Optional example item descriptions in this business's own words, used to
+   * ground Quick Fill's generated names in its vocabulary (§16, v1.2). Absent or
+   * empty means Quick Fill generates exactly as it did before the feature
+   * existed. Capped and cleaned by `lib/style-examples.ts`; per-business by
+   * construction, since one profile's examples are never read for another's.
+   */
+  styleExamples?: string[];
 }
 
 export interface Buyer {

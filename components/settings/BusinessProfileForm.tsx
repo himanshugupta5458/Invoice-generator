@@ -5,10 +5,12 @@ import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import { ColorPicker } from "@/components/settings/ColorPicker";
+import { StyleExamplesField } from "@/components/settings/StyleExamplesField";
 import { Button } from "@/components/ui/Button";
 import { Card, SectionCard } from "@/components/ui/Card";
 import { ADDRESS_GRID, Field, TextArea, TextInput } from "@/components/ui/Field";
 import { DEFAULT_ACCENT } from "@/lib/color";
+import { formatStyleExamples } from "@/lib/style-examples";
 import type { BusinessProfile } from "@/lib/types";
 import {
   businessProfileFormSchema,
@@ -47,6 +49,8 @@ function toFormValues(profile?: BusinessProfile): BusinessProfileFormValues {
     nextInvoiceNumber: profile?.nextInvoiceNumber ?? 1,
     accentColor: profile?.accentColor ?? DEFAULT_ACCENT,
     termsAndConditions: profile?.termsAndConditions ?? DEFAULT_TERMS,
+    // Stored as a list, edited as lines. `toProfile` parses it back (§16).
+    styleExamplesText: formatStyleExamples(profile?.styleExamples),
   };
 }
 
@@ -92,6 +96,7 @@ export function BusinessProfileForm({
   const logoDataUrl = useWatch({ control, name: "logoDataUrl" });
   const gstin = useWatch({ control, name: "gstin" });
   const stateCode = useWatch({ control, name: "stateCode" });
+  const styleExamplesText = useWatch({ control, name: "styleExamplesText" });
 
   // Section 4 asks for a warning, not a rejection: a GSTIN whose first two
   // digits differ from the state code is usually a typo, but can be legitimate.
@@ -421,6 +426,17 @@ export function BusinessProfileForm({
           )}
         </Field>
       </SectionCard>
+
+      {/* Last, and collapsed: this is the only section of the form that can be
+          skipped outright, and it should not sit between the user and the
+          fields that actually have to be filled in. */}
+      <StyleExamplesField
+        value={styleExamplesText ?? ""}
+        onChange={(next) =>
+          setValue("styleExamplesText", next, { shouldDirty: true })
+        }
+        disabled={disabled}
+      />
 
       <Card className="px-5 py-4 sm:px-6">
         <div className="flex flex-wrap gap-2">

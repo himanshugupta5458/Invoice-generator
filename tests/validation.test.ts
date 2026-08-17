@@ -40,6 +40,7 @@ function profileValues(
     nextInvoiceNumber: 1,
     accentColor: "#7A5230",
     termsAndConditions: "Payment due within 15 days.",
+    styleExamplesText: "",
     ...overrides,
   };
 }
@@ -206,6 +207,21 @@ describe("form values to stored records", () => {
     expect(profile.bank.ifsc).toBe("HDFC0000123"); // uppercased
   });
 
+  it("parses Quick Fill's style examples out of the text the form holds", () => {
+    // The form edits lines; storage holds a cleaned, capped list (§16, v1.2).
+    const profile = toProfile(
+      profileValues({
+        styleExamplesText:
+          "1. Kundan Necklace Set\t71171990\t2\t4,500.00\nOxidised Silver Anklet\nTotal\n",
+      }),
+      "profile-1",
+    );
+    expect(profile.styleExamples).toEqual([
+      "Kundan Necklace Set",
+      "Oxidised Silver Anklet",
+    ]);
+  });
+
   it("stores absent optional values as undefined, not empty strings", () => {
     const profile = toProfile(
       profileValues({ termsAndConditions: "   " }),
@@ -213,6 +229,8 @@ describe("form values to stored records", () => {
     );
     expect(profile.termsAndConditions).toBeUndefined();
     expect(profile.logoDataUrl).toBeUndefined();
+    // An empty examples box is an absent list, not an empty one.
+    expect(profile.styleExamples).toBeUndefined();
 
     const buyer = toBuyer(buyerValues({ gstin: "", phone: "  " }));
     expect(buyer.gstin).toBeUndefined();

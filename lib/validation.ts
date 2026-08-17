@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { isValidHexColor, normalizeHex } from "./color";
 import { gstinStateCode, isValidGstin } from "./format";
+import { parseStyleExamples } from "./style-examples";
 import type {
   BusinessProfile,
   Buyer,
@@ -92,6 +93,15 @@ export const businessProfileFormSchema = z.object({
     .min(1, "Must be 1 or more"),
   accentColor: hexColorSchema,
   termsAndConditions: z.string(),
+  /**
+   * Quick Fill's optional style examples, as the textarea holds them: free text,
+   * one example per line (§16, v1.2). Kept as text rather than as an array
+   * because that is what the user edits, and parsed into the stored list by
+   * `toProfile` — so what is on screen and what is saved cannot disagree. No
+   * validation rule of its own: nothing a user can type here should stop them
+   * saving a business profile.
+   */
+  styleExamplesText: z.string(),
 });
 
 export type BusinessProfileFormValues = z.infer<
@@ -217,6 +227,9 @@ export const businessProfileSchema = z.object({
   nextInvoiceNumber: z.number(),
   accentColor: z.string(),
   termsAndConditions: z.string().optional(),
+  // Optional throughout: profiles written before v1.2 do not carry it, and a
+  // backup made then must still import cleanly.
+  styleExamples: z.array(z.string()).optional(),
 });
 
 export const buyerSchema = z.object({
@@ -288,6 +301,11 @@ function blankToUndefined(value: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/** The same rule for a list: nothing to store is `undefined`, not `[]`. */
+function emptyToUndefined(values: string[]): string[] | undefined {
+  return values.length === 0 ? undefined : values;
+}
+
 export function toProfile(
   values: BusinessProfileFormValues,
   id: string,
@@ -311,6 +329,12 @@ export function toProfile(
     nextInvoiceNumber: values.nextInvoiceNumber,
     accentColor: normalizeHex(values.accentColor) ?? values.accentColor,
     termsAndConditions: blankToUndefined(values.termsAndConditions),
+    // Cleaned and capped on the way in, so nothing that reaches storage — or a
+    // prompt — is longer or larger than the caps allow. An empty list is stored
+    // as absent, like every other optional field here.
+    styleExamples: emptyToUndefined(
+      parseStyleExamples(values.styleExamplesText).examples,
+    ),
   };
 }
 

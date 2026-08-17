@@ -235,6 +235,23 @@ describe("parseExportBundle", () => {
     expect(parsed.profiles).toEqual([]);
   });
 
+  it("round-trips a profile's Quick Fill style examples", () => {
+    // Optional and added in v1.2: a backup written before it must still import,
+    // and one written after it must not lose the list (§16).
+    const parsed = parseExportBundle(
+      JSON.stringify({
+        profiles: [
+          profile({ styleExamples: ["Kundan Necklace Set"] }),
+          profile({ id: "profile-2", styleExamples: undefined }),
+        ],
+        buyers: [],
+        invoices: [],
+      }),
+    );
+    expect(parsed.profiles[0].styleExamples).toEqual(["Kundan Necklace Set"]);
+    expect(parsed.profiles[1].styleExamples).toBeUndefined();
+  });
+
   it("rejects files that would wipe good data", () => {
     expect(() => parseExportBundle("not json at all")).toThrow(StorageError);
     expect(() => parseExportBundle("null")).toThrow(StorageError);
