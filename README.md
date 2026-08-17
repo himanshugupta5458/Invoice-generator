@@ -1,8 +1,10 @@
 # InvoiceGen
 
 GST-compliant tax invoices for Indian businesses, generated in the browser and
-downloaded as clean, vector PDFs. No login, no database, no backend — the whole
-app runs client-side and deploys to Vercel with zero configuration.
+downloaded as clean, vector PDFs. No login and no database — invoices, PDFs, and
+storage are entirely client-side, and the app deploys to Vercel with no required
+configuration. One optional feature, **Quick Fill (AI)**, calls out to a server
+route; everything else works with the network off.
 
 Built to the specification in [`docs/spec.md`](docs/spec.md).
 
@@ -21,6 +23,11 @@ Built to the specification in [`docs/spec.md`](docs/spec.md).
 - **CSV bulk upload** of items, parsed entirely in the browser. Valid rows are
   appended and rejected rows are listed with a reason — nothing is dropped
   silently.
+- **Quick Fill (AI)** *(v1.1, optional)* — describe a purchase ("furniture
+  shopping, roughly ₹45,000") and get a drafted set of item rows to explore with.
+  Every generated row is validated against the same schema a typed row is, and
+  anything refused is listed with the reason. Sample data for testing, not
+  verified purchase records. Needs `GROQ_API_KEY`; see below.
 - **PDF download** — real selectable text in Noto Sans, with the ₹ glyph, themed
   from the profile's accent colour, including bank details, terms, and a
   paid/unpaid badge.
@@ -38,6 +45,17 @@ npm run dev          # http://localhost:3000
 
 Open the app and add a business profile in **Settings** first — the invoice
 builder stays locked until one exists.
+
+### Optional: enable Quick Fill (AI)
+
+```bash
+cp .env.example .env.local   # then paste a key into GROQ_API_KEY
+```
+
+Get a free key at [console.groq.com](https://console.groq.com) — no card needed.
+The key is read only by `app/api/quick-fill/route.ts` and never reaches the
+browser. Leave it unset and everything else works exactly as before; the Quick
+Fill button just reports that the feature is not configured.
 
 ### Scripts
 
@@ -68,6 +86,11 @@ There is no database and no account in v1. In practice:
 - Use **Settings → Export & import** to download a JSON backup and restore it
   elsewhere. Importing *replaces* everything currently stored.
 
+The one exception is Quick Fill: the description you type there is sent to the
+server route and on to Groq. No invoice, buyer, profile, or stored data goes with
+it, and nothing is written down on the way. Do not enable it if that trip is
+unacceptable — the rest of the app never makes a network call.
+
 Saved invoices embed a frozen snapshot of the business details, buyer, ship-to,
 terms, and accent colour used at the time they were issued, so editing a profile
 or a buyer later never alters an invoice you have already sent.
@@ -79,7 +102,9 @@ methods and calling `setRepository()` — no component or store change.
 
 ## Deploy to Vercel
 
-No environment variables, no database, no build configuration.
+No database, no build configuration, and no *required* environment variables.
+Add `GROQ_API_KEY` in the project's environment settings if you want Quick Fill;
+the deployment builds and runs without it.
 
 **From the dashboard:** push this repository to GitHub/GitLab/Bitbucket, then
 [import it into Vercel](https://vercel.com/new). The Next.js preset is detected
@@ -98,17 +123,20 @@ vercel --prod   # production
 ```
 app/
   page.tsx            invoice builder (home)
+  api/quick-fill/     the app's only server route — Quick Fill (AI)
   invoices/page.tsx   saved invoice history
   settings/page.tsx   profiles, buyers, export/import
   buyers/page.tsx     the buyers panel on its own route
 components/
-  invoice/            builder, items table, CSV import, preview, PDF, history
+  invoice/            builder, items table, CSV import, Quick Fill, preview, PDF, history
   settings/           profile form, colour picker, buyer form, data panel
   ui/                 button, field, nav, error banner
 lib/
   gst.ts              tax engine — pure, fully tested
   format.ts           currency, amount in words, GSTIN check — pure
   csv.ts              CSV → items parser — pure
+  quick-fill.ts       AI prompt + response validation — pure
+  rate-limit.ts       token bucket for the Quick Fill route — pure
   history.ts          history ordering/filtering — pure
   color.ts            accent presets + contrast helpers
   repository.ts       persistence boundary + LocalStorageRepository
@@ -124,7 +152,8 @@ the money maths stays trivially testable.
 ## Tech
 
 Next.js (App Router) + TypeScript · Tailwind CSS · React Hook Form + Zod ·
-`@react-pdf/renderer` · Zustand · Vitest.
+`@react-pdf/renderer` · Zustand · Vitest. Quick Fill (v1.1) calls Groq
+(`llama-3.3-70b-versatile`) from one serverless route.
 
 ## Not in v1
 

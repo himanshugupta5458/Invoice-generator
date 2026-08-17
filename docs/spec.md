@@ -36,6 +36,15 @@ required; do not build it now.
 
 Do not add a database, auth provider, or paid service in v1.
 
+> **v1.1 amendment (Quick Fill).** The rule above stands for v1 and was met in
+> full: v1 shipped with no server routes, no secrets, and no external service.
+> **v1.1 adds exactly one exception** — the Quick Fill (AI) feature in §16, which
+> introduces a single serverless route and one external API (Groq, free tier, no
+> card). This is an addition to the stack, not a retroactive failure of v1: every
+> claim in this section was true of the v1 build and remains true of every part
+> of the app outside §16. Still no database, still no auth provider, still no
+> paid service. Anything else wanting a backend needs its own amendment here.
+
 ---
 
 ## 3. Architecture & file structure
@@ -364,6 +373,9 @@ uses. Leave this marker at the repository boundary:
   float drift; never display a raw float.
 - Comment the GST branch logic and the round-off so a non-developer can follow it.
 - No secrets, no env vars needed for v1. If you add any, document them in `.env.example`.
+  **v1.1:** Quick Fill (§16) adds the first one — `GROQ_API_KEY`, server-side only,
+  documented in `.env.example`. The app must keep working without it: an unset key
+  disables Quick Fill with a clear message and changes nothing else.
 
 ---
 
@@ -371,6 +383,11 @@ uses. Leave this marker at the repository boundary:
 
 - Framework preset auto-detects as Next.js; build command `next build`, output default.
 - No environment variables required for v1.
+- **v1.1:** one *optional* environment variable, `GROQ_API_KEY` (§16). Set it in the
+  Vercel project settings to enable Quick Fill; leave it unset and the deployment
+  still builds, deploys, and runs — Quick Fill is the only thing that reports itself
+  unavailable. So the "deploys with zero configuration" property survives: the
+  configuration buys a feature, it is not a precondition for the app.
 - Add a short `README.md`: local dev (`npm i`, `npm run dev`), tests, and "Deploy to Vercel"
   (push to a Git repo and import it, or `vercel` from the CLI).
 
@@ -405,6 +422,24 @@ uses. Leave this marker at the repository boundary:
 - [ ] Invoice status (Paid/Unpaid) can be toggled from the history page.
 - [ ] Settings can export all data to JSON and import it back.
 - [ ] App deploys to Vercel with no configuration and no database.
+      **v1.1 amends this item**, and only this item: the app still deploys and runs
+      with no configuration and no database, but it now ships one serverless route
+      (`/api/quick-fill`) and reads one optional server-side env var. Read as:
+      *deploys to Vercel with no required configuration, no database, and no
+      client-side secrets.* Every other item above is unchanged.
+
+### v1.1 additions
+
+- [ ] Quick Fill (AI) generates items from a free-text description, appends the
+      valid rows, and lists any it refused with a reason.
+- [ ] `GROQ_API_KEY` is server-side only and never reaches the browser bundle or a
+      response body.
+- [ ] With `GROQ_API_KEY` unset, the app builds, deploys, and works — Quick Fill
+      alone reports that it is unconfigured.
+- [ ] Empty input is refused before the API is called; the route rate-limits per IP
+      and returns a "try again in a moment" message rather than a raw error.
+- [ ] Prompt construction, response validation, and the rate limiter are unit
+      tested with the network call mocked.
 
 ---
 
@@ -415,3 +450,94 @@ tested, and only if actually needed), e-invoicing/IRN & QR, UPI QR code on invoi
 HSN-wise summary table, reverse-charge and TCS handling, multi-currency, email/WhatsApp
 delivery, GSTR export, partial-payment or overdue tracking beyond a simple paid/unpaid flag.
 Leave `// TODO` markers where these would hook in, but keep v1 lean.
+
+---
+
+## 16. Quick Fill (AI) — **v1.1**
+
+> **This section is a v1.1 addition.** It is the app's first backend dependency and
+> the first thing here that needs a secret. It amends §2, §12, §13, and item 16 of
+> §14 — each of which now carries a pointer back here. Nothing in v1 was built
+> wrong: v1 genuinely had no server routes, no secrets, and no external service.
+> This is scope added on top, deliberately and in one place.
+
+### What it is for
+
+Hand-typing eight item rows to see what an invoice looks like is the slowest part of
+trying the app out. Quick Fill takes a sentence — "furniture shopping, roughly
+₹45,000 total", "artificial jewellery order" — and drafts a plausible set of rows to
+fill the table with. It is an **exploration aid**, and the UI must say so: these are
+**sample, estimated items for testing, not verified purchase data**. Nothing about
+the tax engine, the PDF, or persistence changes; Quick Fill only produces candidate
+rows for the items table, exactly as CSV import does.
+
+### API surface
+
+`POST /api/quick-fill`
+
+```ts
+// request
+{ description: string; targetAmount?: number }
+// 2xx response
+{ items: InvoiceItem[]; rejected: Array<{ index: number; label?: string; messages: string[] }>; total: number }
+// any error
+{ error: string }   // always a plain sentence, never an upstream dump
+```
+
+`targetAmount`, when given, is the **GST-inclusive grand total** the rows should land
+near (~5%). `total` is what the returned rows actually came to, so the UI can show
+the two side by side.
+
+### Rules
+
+- **The key is server-side only.** `GROQ_API_KEY` is read in the route handler and
+  nowhere else. No `NEXT_PUBLIC_` prefix, not in a response body, not in an error
+  message. Documented in `.env.example` with a pointer to `console.groq.com` for a
+  free key.
+- **Model output is never trusted.** Every returned row is validated against
+  `invoiceItemFormSchema` — the same schema the items table and the CSV import use —
+  before it can reach the form. Same rule as §4, applied to a less trustworthy
+  source.
+- **Nothing is silently dropped, and nothing is force-fit.** Rows that fail
+  validation come back in `rejected` with the reason and are shown to the user. Rows
+  that fail are *not* corrected to make them pass, and rows that miss the target
+  total are *not* rescaled to hit it — the figures are reported as generated.
+- **Refuse cheaply, before spending the API.** Empty input and input over ~500
+  characters are rejected without an upstream call, on both the client and the route.
+- **Rate limit per IP.** Groq's free tier is roughly 30 requests/minute shared across
+  the whole deployment, so one client must not be able to exhaust it. An in-memory
+  token bucket is sufficient (5 burst, 5/min sustained); it limits per serverless
+  instance rather than globally, which is adequate for blunting one client's
+  hammering and avoids the durable store §7 exists to defer.
+- **Every error path ends in a sentence the user can act on** — network, rate limit
+  (429 → "try again in a moment", with `Retry-After`), unconfigured key (503),
+  unparseable model output. The loading state must always resolve; the user is never
+  left stuck.
+- **Degrades to absent.** With no key set, the route returns 503 with a clear message
+  and the rest of the app is unaffected.
+
+### Stack and structure
+
+- **Groq** (`https://api.groq.com`, OpenAI-compatible), model
+  `llama-3.3-70b-versatile`, JSON mode. Free tier, no card.
+- `app/api/quick-fill/route.ts` — the only server route in the app. Handles one
+  request; stores nothing.
+- `lib/quick-fill.ts` — **pure**: prompt construction, response parsing, row
+  validation, total estimation. No network, no `process.env`, so it is testable
+  exactly like `lib/csv.ts`.
+- `lib/rate-limit.ts` — **pure** token bucket; `now` is a parameter, not a clock read.
+- `lib/quick-fill-limiter.ts` — the shared limiter instance, kept apart so tests can
+  reset it.
+- `components/invoice/QuickFillButton.tsx` — the trigger beside the CSV button and
+  the panel it opens (description textarea, optional target amount, Generate).
+  Generated rows append through the same path CSV rows do.
+
+### Required tests (`tests/quick-fill.test.ts`, `tests/rate-limit.test.ts`, `tests/quick-fill-route.test.ts`)
+
+Mock the Groq call; never hit the network. Cover: the prompt names every GST slab and
+the row cap; a reply wrapped in markdown fences or prose is still recovered; strings
+like `"₹1,250.00"` and `"18%"` coerce; an off-slab GST rate is rejected with a reason
+while good rows in the same reply still land; a non-JSON reply is reported, not
+thrown; the token bucket refills at the configured rate and never past its burst; the
+key never appears in a response; empty input and a rate-limited request both cost
+zero upstream calls.

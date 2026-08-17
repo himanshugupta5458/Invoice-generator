@@ -9,6 +9,11 @@ import {
   CsvImportFeedback,
   useCsvImport,
 } from "@/components/invoice/CsvImportButton";
+import {
+  QuickFillButton,
+  QuickFillPanel,
+  useQuickFill,
+} from "@/components/invoice/QuickFillButton";
 import { Button } from "@/components/ui/Button";
 import { Select, TextInput } from "@/components/ui/Field";
 import { cn } from "@/components/ui/cn";
@@ -116,14 +121,17 @@ export function ItemsTable({
   const listError = errors?.root?.message ?? errors?.message;
 
   /**
-   * Append imported rows (§4).
+   * Append rows that arrived in bulk — from a CSV (§4) or from Quick Fill (§16).
+   *
+   * Both routes land here so the two features behave identically once their rows
+   * have been validated; only where the rows came from differs.
    *
    * The table always opens with one blank row. Appending behind it would leave
    * that blank row in place to fail validation on save, so an untouched blank
    * first row is dropped once real rows arrive. A row the user has typed into is
    * never discarded.
    */
-  function handleCsvImport(imported: InvoiceItemFormValues[]) {
+  function handleBulkAppend(imported: InvoiceItemFormValues[]) {
     const first = lines[0];
     const dropBlankFirstRow =
       fields.length === 1 &&
@@ -170,7 +178,9 @@ export function ItemsTable({
     setUndo(null);
   }
 
-  const csv = useCsvImport(handleCsvImport);
+  const csv = useCsvImport(handleBulkAppend);
+  const quickFill = useQuickFill(handleBulkAppend);
+  const quickFillPanelId = `${rowIdPrefix}quick-fill`;
 
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
@@ -397,6 +407,11 @@ export function ItemsTable({
           rather than as attachments to whichever button triggered them. */}
       <div className="mt-3 flex flex-col gap-2 empty:mt-0">
         <CsvImportFeedback state={csv} />
+        <QuickFillPanel
+          state={quickFill}
+          id={quickFillPanelId}
+          disabled={disabled}
+        />
       </div>
 
       {undo && (
@@ -419,12 +434,24 @@ export function ItemsTable({
           </Button>
 
           <CsvImportButton state={csv} disabled={disabled} />
+
+          <QuickFillButton
+            state={quickFill}
+            panelId={quickFillPanelId}
+            disabled={disabled}
+          />
         </div>
 
         <p className="text-xs text-stone-500">
           Bulk-add from a CSV with columns{" "}
           <code className="font-mono">{CSV_TEMPLATE_HEADER}</code>. HSN is
           optional, and the file never leaves your browser.
+        </p>
+        {/* The one place in the app that calls out, so it says so plainly. */}
+        <p className="text-xs text-stone-500">
+          Quick Fill drafts sample items from a description using AI — estimates
+          for testing, not verified purchase data. Your description is sent to
+          the AI service; nothing else about the invoice is.
         </p>
       </div>
     </section>
