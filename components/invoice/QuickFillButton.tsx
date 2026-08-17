@@ -7,6 +7,7 @@ import { TextArea, TextInput } from "@/components/ui/Field";
 import { formatINR } from "@/lib/format";
 import {
   MAX_DESCRIPTION_CHARS,
+  parseGstRateFromDescription,
   type QuickFillErrorBody,
   type QuickFillResponseBody,
   type QuickFillRowError,
@@ -100,6 +101,16 @@ export function useQuickFill(
     if (trimmed.length > MAX_DESCRIPTION_CHARS) {
       setSummary(null);
       setError(`Keep the description under ${MAX_DESCRIPTION_CHARS} characters.`);
+      return;
+    }
+
+    // A rate named in the description pins every row to it. Checked here as well
+    // as on the route so a "15%" typo is corrected without a round trip, using
+    // the same pure function so the two can never disagree about what is valid.
+    const namedRate = parseGstRateFromDescription(trimmed);
+    if (namedRate.error) {
+      setSummary(null);
+      setError(namedRate.error);
       return;
     }
 
@@ -287,6 +298,8 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
             onChange={(event) => state.setDescription(event.target.value)}
           />
           <p className="text-xs text-stone-500">
+            Name a GST rate — &ldquo;Motor Parts 5%&rdquo; — to put every row on
+            that slab.{" "}
             {remaining < 0
               ? `${Math.abs(remaining)} characters over the limit`
               : `${remaining} characters left`}

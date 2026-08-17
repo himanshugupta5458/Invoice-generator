@@ -212,6 +212,75 @@ describe("POST /api/quick-fill — the happy path", () => {
   });
 });
 
+describe("POST /api/quick-fill — a GST rate named in the description", () => {
+  it("puts every row on the named slab, overriding the model", async () => {
+    // The model is told 5% and asked for 5% goods, but it returned 18% and 12%
+    // anyway — which is exactly why the override does not depend on it obeying.
+    mockGroq(
+      JSON.stringify({
+        items: [
+          { description: "Brake pad set", hsn: "8708", quantity: 4, weight: 1200, gstRate: 18 },
+          { description: "Oil filter", hsn: "8421", quantity: 2, weight: 400, gstRate: 12 },
+        ],
+      }),
+    );
+
+    const body = await (
+      await POST(request({ description: "Motor Parts 5%", targetAmount: 20000 }))
+    ).json();
+
+    expect(body.items.map((item: { gstRate: number }) => item.gstRate)).toEqual([
+      5, 5,
+    ]);
+    expect(body.rejected).toEqual([]);
+
+    // And the slab travels to the model too, so it can pick goods that fit it.
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sent.messages[1].content).toContain("taxed at 5% GST");
+  });
+
+  it("leaves the model to choose per item when no rate is named", async () => {
+    mockGroq(
+      JSON.stringify({
+        items: [
+          { description: "Brake pad set", quantity: 4, weight: 1200, gstRate: 18 },
+          { description: "Oil filter", quantity: 2, weight: 400, gstRate: 12 },
+        ],
+      }),
+    );
+
+    const body = await (
+      await POST(request({ description: "Motor Parts", targetAmount: 20000 }))
+    ).json();
+
+    expect(body.items.map((item: { gstRate: number }) => item.gstRate)).toEqual([
+      18, 12,
+    ]);
+  });
+
+  it("refuses a rate that is not a slab, without spending an upstream call", async () => {
+    const response = await POST(
+      request({ description: "Motor Parts 15%", targetAmount: 20000 }),
+    );
+
+    expect(response.status).toBe(400);
+    const error = (await response.json()).error;
+    expect(error).toContain("15% is not a GST slab");
+    expect(error).toContain("18");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a description naming two different rates", async () => {
+    const response = await POST(
+      request({ description: "jewellery 12% with 5% discount" }),
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toContain("say which GST rate applies");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/quick-fill — input refusals", () => {
   it("rejects an empty description without spending an upstream call", async () => {
     const response = await POST(request({ description: "   " }));

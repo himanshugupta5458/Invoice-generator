@@ -22,6 +22,7 @@ import {
   buildQuickFillRequestBody,
   buildQuickFillUserPrompt,
   impliedTargetFromMix,
+  parseGstRateFromDescription,
   parseQuickFillMix,
 } from "@/lib/quick-fill";
 import { GST_SLABS } from "@/lib/types";
@@ -272,6 +273,145 @@ describe("parseQuickFillMix", () => {
       "no items",
     );
     expect(parseQuickFillMix("").responseError).toContain("not valid JSON");
+  });
+});
+
+describe("parseGstRateFromDescription", () => {
+  it("reads a slab the user named alongside the goods", () => {
+    expect(parseGstRateFromDescription("Motor Parts 5%").gstRate).toBe(5);
+    expect(
+      parseGstRateFromDescription("artificial jewellery 12%").gstRate,
+    ).toBe(12);
+  });
+
+  it("accepts the ways somebody actually writes a rate", () => {
+    for (const [text, rate] of [
+      ["cotton shirts 5%", 5],
+      ["cotton shirts 5 %", 5],
+      ["cotton shirts 18 percent", 18],
+      ["cotton shirts 28pct", 28],
+      ["cotton shirts GST 12", 12],
+      ["cotton shirts gst: 3", 3],
+      ["unbranded grains 0%", 0],
+      ["sofa set 5.0%", 5],
+    ] as const) {
+      expect(parseGstRateFromDescription(text).gstRate).toBe(rate);
+    }
+  });
+
+  it("says nothing when no rate was named", () => {
+    expect(parseGstRateFromDescription("furniture shopping")).toEqual({});
+    // A plain number is a quantity or a price, not a tax rate.
+    expect(parseGstRateFromDescription("2 sofas and 4 chairs")).toEqual({});
+  });
+
+  it("refuses a figure that is not a GST slab, and lists the ones that are", () => {
+    const result = parseGstRateFromDescription("motor parts 15%");
+    expect(result.gstRate).toBeUndefined();
+    expect(result.error).toContain("15% is not a GST slab");
+    for (const slab of GST_SLABS) {
+      expect(result.error).toContain(String(slab));
+    }
+  });
+
+  it("refuses a fractional rate", () => {
+    expect(parseGstRateFromDescription("sarees 12.5%").error).toContain(
+      "not a GST slab",
+    );
+  });
+
+  it("asks rather than guesses when two different rates are named", () => {
+    // "12%" is plausibly the tax and "5%" plausibly a discount, or the reverse.
+    // Picking one would put a rate on an invoice on the strength of a guess.
+    const result = parseGstRateFromDescription("jewellery 12% with 5% discount");
+    expect(result.gstRate).toBeUndefined();
+    expect(result.error).toContain("5% and 12%");
+    expect(result.error).toContain("say which GST rate applies");
+  });
+
+  it("is content when the same rate is named twice", () => {
+    expect(
+      parseGstRateFromDescription("motor parts 5%, all items at 5%").gstRate,
+    ).toBe(5);
+  });
+
+  it("does not carry regex state between calls", () => {
+    // The patterns are /g; reusing one without resetting lastIndex would make
+    // the second call miss.
+    expect(parseGstRateFromDescription("motor parts 5%").gstRate).toBe(5);
+    expect(parseGstRateFromDescription("motor parts 5%").gstRate).toBe(5);
+  });
+});
+
+describe("parseQuickFillMix — a slab the user pinned", () => {
+  it("puts every row on that slab, whatever the model chose", () => {
+    const result = parseQuickFillMix(
+      JSON.stringify({
+        items: [
+          { description: "Brake pad", quantity: 4, weight: 1200, gstRate: 28 },
+          { description: "Oil filter", quantity: 2, weight: 400, gstRate: 18 },
+        ],
+      }),
+      5,
+    );
+
+    expect(result.rejected).toEqual([]);
+    expect(result.items.map((item) => item.gstRate)).toEqual([5, 5]);
+  });
+
+  it("keeps a row whose slab was off-list, since the slab is being replaced", () => {
+    // Rejecting a good item over a field about to be overwritten would be a
+    // refusal with no consequence.
+    const result = parseQuickFillMix(
+      JSON.stringify({
+        items: [{ description: "Brake pad", quantity: 4, weight: 1200, gstRate: 15 }],
+      }),
+      5,
+    );
+
+    expect(result.rejected).toEqual([]);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].gstRate).toBe(5);
+  });
+
+  it("still refuses a row that is bad for some other reason", () => {
+    const result = parseQuickFillMix(
+      JSON.stringify({
+        items: [{ description: "", quantity: 4, weight: 1200, gstRate: 15 }],
+      }),
+      5,
+    );
+    expect(result.items).toEqual([]);
+    expect(result.rejected[0].messages.join(" ")).toContain("Describe the item");
+  });
+
+  it("leaves the model's per-item slabs alone when nothing was pinned", () => {
+    const result = parseQuickFillMix(
+      JSON.stringify({
+        items: [
+          { description: "Brake pad", quantity: 4, weight: 1200, gstRate: 28 },
+          { description: "Oil filter", quantity: 2, weight: 400, gstRate: 18 },
+        ],
+      }),
+    );
+    expect(result.items.map((item) => item.gstRate)).toEqual([28, 18]);
+  });
+});
+
+describe("buildQuickFillUserPrompt — a pinned slab", () => {
+  it("tells the model the slab and to choose goods that fit it", () => {
+    const prompt = buildQuickFillUserPrompt({
+      description: "Motor Parts",
+      gstRate: 5,
+    });
+    expect(prompt).toContain("taxed at 5% GST");
+    expect(prompt).toContain('"gstRate": 5');
+    expect(prompt).toContain("genuinely attract 5%");
+  });
+
+  it("says nothing about a slab when none was pinned", () => {
+    const prompt = buildQuickFillUserPrompt({ description: "Motor Parts" });
+    expect(prompt).not.toContain("taxed at");
   });
 });
 

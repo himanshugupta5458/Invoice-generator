@@ -57,11 +57,17 @@ export const MAX_GENERATED_ITEMS = 20;
 export interface QuickFillInput {
   description: string;
   /**
-   * Exact grand total (GST inclusive, whole rupees) the rows must add up to.
-   * Passed to the model only as a hint about scale — it is the solver, not the
-   * model, that makes the arithmetic come out.
+   * Grand total (GST inclusive, whole rupees) the rows should come near. Passed
+   * to the model only as a hint about scale — it is the solver, not the model,
+   * that does the arithmetic.
    */
   targetAmount?: number;
+  /**
+   * A single GST slab for every line, when the description named one. The model
+   * is told so it can pick goods that genuinely attract that slab, but the slab
+   * is applied on the way in regardless of what it returns.
+   */
+  gstRate?: number;
 }
 
 /**
@@ -173,6 +179,79 @@ export const QUICK_FILL_SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
+ * A GST slab named in the description, e.g. "Motor Parts 5%".
+ *
+ * Neither field set means the description named no rate at all, which is the
+ * common case and leaves the model to choose a slab per item.
+ */
+export interface QuickFillGstRate {
+  /** The slab to apply to every line. */
+  gstRate?: number;
+  /** Why a rate the description *did* name cannot be used. */
+  error?: string;
+}
+
+/**
+ * Percentages, as somebody types them into a one-line description:
+ * "5%", "5 %", "12 percent", "18pct", "GST 28", "gst: 12".
+ *
+ * Two patterns rather than one because a bare "GST 5" has no percent sign to
+ * anchor on, and requiring one would quietly ignore a rate the user did specify.
+ */
+const RATE_PATTERNS = [
+  /(\d+(?:\.\d+)?)\s*(?:%|percent\b|pct\b)/gi,
+  /\bgst\s*[:=-]?\s*(\d+(?:\.\d+)?)\b/gi,
+];
+
+/**
+ * Read a GST slab out of the free-text description (§16).
+ *
+ * The user can pin the whole invoice to one slab by naming it — "Motor Parts 5%"
+ * — which is how somebody reproducing a real bill works, since a real bill is
+ * usually all one slab. Three outcomes, and all three are explicit:
+ *
+ *  - no rate named            -> `{}`, and the model picks a slab per item
+ *  - one valid slab named     -> `{ gstRate }`, applied to every line
+ *  - anything else named      -> `{ error }`, refused before a request is spent
+ *
+ * "Anything else" covers a figure that is not a slab (15%) *and* a description
+ * that names two different figures ("12% with 5% discount"). Picking one of two
+ * would be a guess about which one meant tax, and guessing wrong puts a wrong
+ * tax rate on an invoice — so it asks instead.
+ */
+export function parseGstRateFromDescription(
+  description: string,
+): QuickFillGstRate {
+  const found = new Set<number>();
+
+  for (const pattern of RATE_PATTERNS) {
+    // Fresh regex per call: a /g regex carries lastIndex between uses.
+    for (const match of description.matchAll(new RegExp(pattern))) {
+      const value = Number(match[1]);
+      if (Number.isFinite(value)) found.add(value);
+    }
+  }
+
+  if (found.size === 0) return {};
+
+  if (found.size > 1) {
+    const listed = [...found].sort((a, b) => a - b).join("% and ");
+    return {
+      error: `That description names ${listed}% — say which GST rate applies, or leave the rate out.`,
+    };
+  }
+
+  const [rate] = [...found];
+  if (!(GST_SLABS as readonly number[]).includes(rate)) {
+    return {
+      error: `${rate}% is not a GST slab. Use one of ${SLAB_LIST}%, or leave the rate out.`,
+    };
+  }
+
+  return { gstRate: rate };
+}
+
+/**
  * The user turn: the description, plus the arithmetic target when one was given.
  *
  * The total is given as GST-inclusive because that is what somebody means by
@@ -196,6 +275,15 @@ export function buildQuickFillUserPrompt(input: QuickFillInput): string {
     lines.push(
       "",
       "No target total was given — pick quantities and weights that are realistic for this purchase.",
+    );
+  }
+
+  if (input.gstRate !== undefined) {
+    lines.push(
+      "",
+      `Every item on this invoice is taxed at ${input.gstRate}% GST.`,
+      `Set "gstRate": ${input.gstRate} on every item, and where you have a choice,`,
+      `pick goods and HSN codes that genuinely attract ${input.gstRate}%.`,
     );
   }
 
@@ -328,8 +416,16 @@ function toWeight(record: Record<string, unknown>, quantity: number): number {
  *
  * Returns the rows that passed, the rows that did not with reasons, or a
  * `responseError` when the reply was not a list of items at all.
+ *
+ * `forcedGstRate` — a slab the user named in their description — replaces the
+ * model's choice on every row, and does so *before* validation rather than after:
+ * rejecting a row for a 15% slab we were about to overwrite with 5% anyway would
+ * be a refusal with no consequence, and would lose a perfectly good item.
  */
-export function parseQuickFillMix(raw: string): QuickFillMixResult {
+export function parseQuickFillMix(
+  raw: string,
+  forcedGstRate?: number,
+): QuickFillMixResult {
   const empty: QuickFillMixResult = { items: [], rejected: [] };
 
   const payload = extractJson(raw);
@@ -373,7 +469,9 @@ export function parseQuickFillMix(raw: string): QuickFillMixResult {
       hsn: toText(record.hsn ?? record.sac ?? record.hsnCode).trim(),
       quantity,
       weight: toWeight(record, quantity),
-      gstRate: toNumber(record.gstRate ?? record.gst ?? record.taxRate),
+      gstRate:
+        forcedGstRate ??
+        toNumber(record.gstRate ?? record.gst ?? record.taxRate),
     };
 
     const parsed = quickFillMixItemSchema.safeParse(candidate);

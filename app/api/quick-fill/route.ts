@@ -32,6 +32,7 @@ import {
   MAX_TARGET_AMOUNT,
   buildQuickFillRequestBody,
   impliedTargetFromMix,
+  parseGstRateFromDescription,
   parseQuickFillMix,
   type QuickFillErrorBody,
   type QuickFillResponseBody,
@@ -120,6 +121,12 @@ export async function POST(request: Request): Promise<Response> {
     targetAmount = raw;
   }
 
+  // A slab named in the description ("Motor Parts 5%") pins every line to it.
+  // Checked here, before the upstream call, because "15%" is a typo the user can
+  // fix in a second and there is no reason to spend a Groq request finding out.
+  const named = parseGstRateFromDescription(description);
+  if (named.error) return fail(named.error, 400);
+
   // The tax branch changes the paise (§6): CGST + SGST rounds half the slab
   // twice, IGST rounds the whole slab once. The solver has to price for the
   // branch this invoice is actually on, so the client sends it. Absent means
@@ -146,7 +153,11 @@ export async function POST(request: Request): Promise<Response> {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(
-        buildQuickFillRequestBody({ description, targetAmount }),
+        buildQuickFillRequestBody({
+          description,
+          targetAmount,
+          gstRate: named.gstRate,
+        }),
       ),
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
@@ -189,7 +200,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 5. Validate ------------------------------------------------------------
-  const mix = parseQuickFillMix(content);
+  // A slab the user named overrides the model's per-item choice outright — they
+  // know what they bought and the model is guessing.
+  const mix = parseQuickFillMix(content, named.gstRate);
 
   if (mix.responseError) {
     console.error("Quick Fill model output rejected:", mix.responseError);

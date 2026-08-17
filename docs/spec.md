@@ -535,6 +535,17 @@ which is what `computeInvoice()` itself falls back to.
   close to expect. A target below the cheapest whole-rupee invoice those items can make
   is refused outright with the figure they *can* reach, because there the gap would be
   the whole amount.
+- **A GST rate named in the description pins the whole invoice to it.** "Motor Parts
+  5%", "artificial jewellery 12%", "cotton shirts GST 5" — a real bill is usually all
+  one slab, so naming one applies it to **every** generated row, overriding whatever
+  the model chose per item. The slab is also passed to the model so it can pick goods
+  and HSN codes that genuinely attract it, but the override does not depend on it
+  obeying: the rate is substituted on the way in, *before* validation, so a row is
+  never rejected over a slab that was about to be replaced. A figure that is not one
+  of 0/3/5/12/18/28 is refused with the valid slabs listed, and a description naming
+  two different figures ("12% with 5% discount") is refused rather than guessed at —
+  both before any upstream call, on the client and the route alike. Naming no rate
+  keeps the old behaviour: the model picks a slab per item.
 - **Model output is never trusted.** Every returned row is validated against
   `quickFillMixItemSchema` — `invoiceItemFormSchema` minus the rate the model no
   longer supplies, plus the weight it does — before it can be priced, and the solved
@@ -593,8 +604,11 @@ whole-rupee floor returns a message naming what the items can reach.
 Everywhere else, mock the Groq call; never hit the network. Cover: the prompt names
 every GST slab and the row cap and takes pricing off the model; a reply wrapped in
 markdown fences or prose is still recovered; strings like `"₹1,250.00"` and `"18%"`
-coerce; an off-slab GST rate is rejected with a reason while good rows in the same
-reply still land; a non-JSON reply is reported, not
+coerce; a rate named in the description is parsed in every form somebody writes it,
+applied to every row over the model's own choice, and refused with the valid slabs
+when it is not a slab or when two different ones are named; an off-slab GST rate is
+rejected with a reason while good rows in the same reply still land; a non-JSON reply
+is reported, not
 thrown; the token bucket refills at the configured rate and never past its burst; the
 key never appears in a response; empty input and a rate-limited request both cost
 zero upstream calls.

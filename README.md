@@ -29,7 +29,8 @@ Built to the specification in [`docs/spec.md`](docs/spec.md).
   arithmetically from your target and checked against the app's own GST engine
   before you see them. Rates come out as **whole rupees** — what a real invoice
   quotes — so the total lands as near your target as whole rupees allow, and the
-  panel tells you how near ("₹12 under your ₹8,65,412 target").
+  panel tells you how near ("₹12 under your ₹8,65,412 target"). Name a GST rate in
+  the description ("Motor Parts 5%") to put every row on that slab.
   Every generated row is validated against the same schema a typed row is, and
   anything refused is listed with the reason. Sample data for testing, not
   verified purchase records. Needs `GROQ_API_KEY`; see below.
