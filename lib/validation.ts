@@ -13,7 +13,7 @@
 import { z } from "zod";
 
 import { isValidHexColor, normalizeHex } from "./color";
-import { isValidGstin } from "./format";
+import { gstinStateCode, isValidGstin } from "./format";
 import type {
   BusinessProfile,
   Buyer,
@@ -189,10 +189,12 @@ export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
  * nag mid-typing.
  */
 export function gstinStateMismatch(gstin: string, stateCode: string): boolean {
-  const trimmed = gstin.trim();
   const code = stateCode.trim();
-  if (!isValidGstin(trimmed) || !/^\d{2}$/.test(code)) return false;
-  return trimmed.slice(0, 2) !== code;
+  // gstinStateCode() returns null unless the GSTIN is well-formed, which is
+  // also what keeps this quiet while the field is half-typed.
+  const encoded = gstinStateCode(gstin);
+  if (encoded === null || !/^\d{2}$/.test(code)) return false;
+  return encoded !== code;
 }
 
 // ---------------------------------------------------------------------------

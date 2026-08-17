@@ -4,7 +4,7 @@ import { InvoiceHistory } from "@/components/invoice/InvoiceHistory";
 import { StorageErrorBanner } from "@/components/ui/StorageErrorBanner";
 
 export const metadata: Metadata = {
-  title: "Invoice history · InvoiceGen",
+  title: "Invoice history",
 };
 
 /**

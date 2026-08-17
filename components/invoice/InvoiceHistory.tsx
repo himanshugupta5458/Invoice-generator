@@ -84,7 +84,7 @@ export function InvoiceHistory() {
           No invoices saved yet — create one on the{" "}
           <Link
             href="/"
-            className="font-medium underline underline-offset-2 hover:text-stone-900"
+            className="font-medium underline underline-offset-2 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
           >
             New invoice
           </Link>{" "}

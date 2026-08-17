@@ -1,12 +1,16 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import { Button } from "@/components/ui/Button";
 import { Field, TextArea, TextInput } from "@/components/ui/Field";
 import type { SavedBuyer } from "@/lib/types";
-import { buyerFormSchema, type BuyerFormValues } from "@/lib/validation";
+import {
+  buyerFormSchema,
+  gstinStateMismatch,
+  type BuyerFormValues,
+} from "@/lib/validation";
 
 function toFormValues(buyer?: SavedBuyer): BuyerFormValues {
   return {
@@ -34,6 +38,7 @@ export function BuyerForm({
   busy = false,
 }: BuyerFormProps) {
   const {
+    control,
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
@@ -41,6 +46,14 @@ export function BuyerForm({
     resolver: zodResolver(buyerFormSchema),
     defaultValues: toFormValues(buyer),
   });
+
+  const gstin = useWatch({ control, name: "gstin" });
+  const stateCode = useWatch({ control, name: "stateCode" });
+
+  // A warning, never a block — the same treatment the business profile gets
+  // (§4). It matters more here: this state code, not the seller's alone, is what
+  // decides whether the invoice is CGST + SGST or IGST (§6).
+  const stateMismatch = gstinStateMismatch(gstin ?? "", stateCode ?? "");
 
   const disabled = busy || isSubmitting;
 
@@ -104,6 +117,11 @@ export function BuyerForm({
           error={errors.gstin?.message}
           className="sm:col-span-2"
           hint="Optional — leave blank for an unregistered buyer."
+          warning={
+            stateMismatch
+              ? `This GSTIN starts with ${gstin?.trim().slice(0, 2)} but the state code is ${stateCode?.trim()} — check they match.`
+              : undefined
+          }
         >
           {(ids) => (
             <TextInput

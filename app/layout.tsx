@@ -10,7 +10,11 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "InvoiceGen — GST invoices",
+  // Pages set just their own name; the template appends the app's.
+  title: {
+    default: "InvoiceGen — GST invoices",
+    template: "%s · InvoiceGen",
+  },
   description:
     "Create GST-compliant tax invoices for Indian businesses, and download them as clean PDFs.",
 };

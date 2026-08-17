@@ -20,6 +20,7 @@ import { createId } from "@/lib/repository";
 import { useHydratedStore, useInvoiceStore } from "@/lib/store";
 import type { BusinessProfile, SavedBuyer } from "@/lib/types";
 import {
+  gstinStateMismatch,
   invoiceFormSchema,
   toBuyer,
   toInvoice,
@@ -121,6 +122,15 @@ export function InvoiceForm() {
   const notes = useWatch({ control, name: "notes" });
 
   const profile = profiles.find((entry) => entry.id === businessProfileId);
+
+  // A buyer typed straight into this form never passes through the buyer form,
+  // so the §4 GSTIN / state-code warning is repeated here. It is advisory: this
+  // state code decides CGST + SGST vs IGST (§6), so a typo is worth catching
+  // before the invoice is issued, but a genuine mismatch must not block a save.
+  const buyerStateMismatch = gstinStateMismatch(
+    buyerValues?.gstin ?? "",
+    buyerValues?.stateCode ?? "",
+  );
 
   // Date is set after mount so the server and client render the same markup.
   useEffect(() => {
@@ -400,6 +410,11 @@ export function InvoiceForm() {
                   error={errors.buyer?.gstin?.message}
                   className="sm:col-span-2"
                   hint="Optional — leave blank for an unregistered buyer."
+                  warning={
+                    buyerStateMismatch
+                      ? `This GSTIN starts with ${buyerValues?.gstin?.trim().slice(0, 2)} but the state code is ${buyerValues?.stateCode?.trim()} — check they match.`
+                      : undefined
+                  }
                 >
                   {(ids) => (
                     <TextInput
@@ -465,7 +480,10 @@ export function InvoiceForm() {
                   // so say where they do come from rather than leave a gap.
                   <>
                     Terms &amp; conditions come from the business profile.{" "}
-                    <Link href="/settings" className="underline">
+                    <Link
+                      href="/settings"
+                      className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
+                    >
                       Edit them in Settings
                     </Link>
                     .

@@ -25,6 +25,11 @@ export function DataPanel() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Exporting an empty bundle produces a file that looks like a backup but
+  // restores nothing, so the action waits until there is something to save.
+  const hasData =
+    profiles.length > 0 || buyers.length > 0 || invoices.length > 0;
+
   async function handleExport() {
     setNotice(null);
     const bundle = await exportData();
@@ -100,7 +105,7 @@ export function DataPanel() {
         <Button
           variant="primary"
           onClick={() => void handleExport()}
-          disabled={busy || !hydrated}
+          disabled={busy || !hydrated || !hasData}
         >
           Export JSON
         </Button>
@@ -118,6 +123,14 @@ export function DataPanel() {
           onChange={(event) => void handleImportFile(event.target.files?.[0])}
         />
       </div>
+
+      {hydrated && !hasData && (
+        <p className="text-sm text-stone-500">
+          Nothing to export yet — add a business profile in the{" "}
+          <span className="font-medium">Business profiles</span> tab, or import a
+          backup you made on another device.
+        </p>
+      )}
 
       {notice && (
         <p role="status" className="text-sm text-stone-600">

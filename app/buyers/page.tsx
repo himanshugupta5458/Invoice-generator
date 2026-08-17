@@ -5,7 +5,7 @@ import { BuyersPanel } from "@/components/settings/BuyersPanel";
 import { StorageErrorBanner } from "@/components/ui/StorageErrorBanner";
 
 export const metadata: Metadata = {
-  title: "Buyers · InvoiceGen",
+  title: "Buyers",
 };
 
 /**
@@ -23,7 +23,7 @@ export default function BuyersPage() {
           Also available as a tab in{" "}
           <Link
             href="/settings"
-            className="underline underline-offset-2 hover:text-stone-900"
+            className="underline underline-offset-2 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
           >
             Settings
           </Link>

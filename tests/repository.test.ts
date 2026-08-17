@@ -7,8 +7,10 @@ import {
   StorageError,
   createId,
 } from "@/lib/repository";
+import { computeInvoice } from "@/lib/gst";
 import { resetStoreForTests, useInvoiceStore } from "@/lib/store";
 import type { BusinessProfile, Invoice, SavedBuyer } from "@/lib/types";
+import { toInvoice, type InvoiceFormValues } from "@/lib/validation";
 
 /** Minimal stand-in for the browser Storage API. */
 class FakeStorage implements Storage {
@@ -342,5 +344,102 @@ describe("store wired to the repository", () => {
 
     const bundle = await useInvoiceStore.getState().exportData();
     expect(bundle?.profiles).toEqual([profile()]);
+  });
+});
+
+/**
+ * The end-to-end guarantee behind §14: an issued invoice is a document, not a
+ * view. Once saved, nothing the user does to the profile or the buyer afterwards
+ * may change it — including a reload, which is what re-reading storage below
+ * simulates.
+ */
+describe("an issued invoice is immune to later edits", () => {
+  beforeEach(() => {
+    enterBrowser();
+    resetStoreForTests();
+  });
+
+  /** The form values the builder would submit for the fixtures above. */
+  function formValues(): InvoiceFormValues {
+    return {
+      businessProfileId: "profile-1",
+      invoiceNumber: "SC/2026/1",
+      date: "2026-08-16",
+      buyerId: "buyer-1",
+      buyer: {
+        name: "Anand Traders",
+        address: "5 MG Road",
+        state: "Maharashtra",
+        stateCode: "27",
+        gstin: "",
+        phone: "",
+      },
+      saveBuyer: false,
+      sameAsBilling: true,
+      shipTo: { name: "", address: "", state: "", stateCode: "", gstin: "" },
+      items: [
+        { description: "Cotton kurta", hsn: "6206", quantity: 2, rate: 500, gstRate: 18 },
+      ],
+      notes: "",
+    };
+  }
+
+  it("keeps its snapshot when the source profile and buyer are edited", async () => {
+    const store = useInvoiceStore.getState();
+    await store.hydrate();
+
+    const original = profile({ termsAndConditions: "Payment due in 15 days." });
+    await store.saveProfile(original);
+    await store.saveBuyer(buyer());
+    await store.saveInvoice(toInvoice(formValues(), original, "invoice-1"));
+
+    // The user later rebrands, moves state, and rewrites the terms; the buyer
+    // record is corrected too.
+    await store.saveProfile(
+      profile({
+        name: "Saara Collection Pvt Ltd",
+        state: "Karnataka",
+        stateCode: "29",
+        accentColor: "#0f766e",
+        termsAndConditions: "New terms.",
+      }),
+    );
+    await store.saveBuyer(buyer({ name: "Anand Traders & Sons" }));
+
+    // Re-read from storage, the way a page reload would.
+    resetStoreForTests();
+    await useInvoiceStore.getState().hydrate();
+    const [stored] = useInvoiceStore.getState().invoices;
+
+    expect(stored.businessSnapshot.name).toBe("Saara Collection");
+    expect(stored.businessSnapshot.stateCode).toBe("27");
+    expect(stored.accentColor).toBe("#7a5230");
+    expect(stored.termsAndConditions).toBe("Payment due in 15 days.");
+    expect(stored.buyer.name).toBe("Anand Traders");
+
+    // And the snapshot's own state code still drives the tax branch: seller 27
+    // vs buyer 27 is intra-state, even though the live profile is now 29.
+    const computed = computeInvoice(
+      stored.businessSnapshot,
+      stored.buyer,
+      stored.items,
+    );
+    expect(computed.isIntraState).toBe(true);
+    expect(computed.grandTotal).toBe(1180);
+  });
+
+  it("saves as paid and survives a status toggle across a reload", async () => {
+    const store = useInvoiceStore.getState();
+    await store.hydrate();
+    await store.saveProfile(profile());
+    await store.saveInvoice(toInvoice(formValues(), profile(), "invoice-1"));
+
+    expect(useInvoiceStore.getState().invoices[0].status).toBe("paid");
+
+    await useInvoiceStore.getState().setInvoiceStatus("invoice-1", "unpaid");
+
+    resetStoreForTests();
+    await useInvoiceStore.getState().hydrate();
+    expect(useInvoiceStore.getState().invoices[0].status).toBe("unpaid");
   });
 });

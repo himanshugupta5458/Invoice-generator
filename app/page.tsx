@@ -1,4 +1,10 @@
+import type { Metadata } from "next";
+
 import { InvoiceForm } from "@/components/invoice/InvoiceForm";
+
+export const metadata: Metadata = {
+  title: "New invoice",
+};
 
 /** Invoice builder — the home screen (§9). */
 export default function HomePage() {
