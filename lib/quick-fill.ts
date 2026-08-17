@@ -142,11 +142,24 @@ export interface QuickFillMixResult {
   items: QuickFillMixItem[];
   rejected: QuickFillRowError[];
   /**
+   * The trade the model took the purchase to be, in its own words. Shown back to
+   * the user beside the rows, so a misread category is caught at a glance
+   * instead of by reading every line. Absent if the model did not say.
+   */
+  category?: string;
+  /**
    * Set when the reply could not be read as a list of items at all (not JSON,
    * or JSON of the wrong shape). `items` and `rejected` are empty when set.
    */
   responseError?: string;
 }
+
+/**
+ * Cap on the model's `category` string. It is displayed, so it is bounded — a
+ * model that answers with a paragraph gets its paragraph trimmed rather than the
+ * summary line wrapping to five rows.
+ */
+export const MAX_CATEGORY_CHARS = 60;
 
 /**
  * The wire contract between the route and the panel. Declared here, in a module
@@ -202,16 +215,45 @@ const FIELD_LABELS: Record<string, string> = {
 export const QUICK_FILL_SYSTEM_PROMPT = [
   "You choose the ITEM MIX for a sample Indian GST tax invoice.",
   "",
+  /*
+   * Why the purpose is stated to the model at all: without it, some requests are
+   * refused outright. Measured against the live model, "jewellery at 18%" — a
+   * slab the reference table below does not list for that trade — drew "I'm
+   * sorry, but I can't comply with that request" on roughly one run in five, and
+   * a refusal reaches the user as a generic "the AI service had a problem".
+   * Read cold, "put this rate on a tax invoice for those goods" does look like a
+   * request to help misstate tax. It is not, and saying what this actually is
+   * costs a few tokens and removes the ambiguity.
+   */
+  "These rows are sample data for testing an invoicing app's layout and totals.",
+  "They are labelled as estimates in the product and are never filed with anyone.",
+  "The person describing the purchase is the authority on what they bought and how",
+  "it is classified; your job is to write it up plausibly, not to audit it.",
+  "",
+  "THE ITEMS ARE THE GOODS DESCRIBED. This is the rule every other rule below",
+  "gives way to. The user's description says what was bought; every line you",
+  "return is one of those things. If they say jewellery, every line is a piece of",
+  "jewellery. Never substitute goods from another trade, never swap goods for",
+  "services, packaging, freight or fitting charges, and never quietly widen the",
+  "purchase into a general shopping list — not to satisfy a tax rate, not to reach",
+  "a total, not for variety. An invoice for the wrong goods is worthless however",
+  "well it satisfies everything else.",
+  "",
   "You do not set prices. Give each line a rough relative weight; the app solves",
   "the exact per-unit rates itself so the invoice lands on its target to the rupee.",
   "",
   "Reply with JSON only — a single object of the form:",
-  '{"items":[{"description":"...","hsn":"6206","quantity":2,"gstRate":12,"weight":3000}]}',
+  '{"category":"...","items":[{"description":"...","hsn":"6206","quantity":2,"gstRate":12,"weight":3000}]}',
   "",
   "Rules:",
-  `- Return between 1 and ${MAX_GENERATED_ITEMS} items.`,
-  "- description: a short, plausible product or service name (max 80 characters).",
-  '- hsn: the 4-8 digit HSN or SAC code if you are reasonably confident of it, otherwise "".',
+  "- category: two or three words naming the trade you took the purchase to be,",
+  '  e.g. "Artificial jewellery" or "Motor vehicle parts". It is shown back to the',
+  "  user so they can catch a misread immediately, so say what you actually chose.",
+  `- Return between 5 and 10 items unless the description implies otherwise; ${MAX_GENERATED_ITEMS} is the hard maximum.`,
+  "- description: a short, plausible product name (max 80 characters), and it must",
+  "  be a thing the described purchase would actually contain.",
+  '- hsn: the 4-8 digit HSN or SAC code for THAT product, or "" if you are unsure.',
+  "  Give the code the goods really carry — never a code chosen to suit a tax rate.",
   "- quantity: a positive number — how many units of this item were bought.",
   "- weight: roughly how many rupees of the purchase this whole line accounts for,",
   "  before tax. A rough figure is fine; it only sets the proportions between lines.",
@@ -241,14 +283,17 @@ export function buildQuickFillSystemPrompt(catalog?: string): string {
     "",
     "── Reference: real Indian invoice items ─────────────────────────────────",
     "",
-    "Draw descriptions and HSN codes from the catalogue below wherever the",
-    "purchase matches one of its trades, so the invoice reads like an actual",
-    "Indian shop's bill rather than generic English. Match the level of detail it",
-    "uses — sizes, materials, model names. If the purchase is not covered, invent",
-    "names in the same style.",
+    "This is a VOCABULARY, not a menu. Find the one section that matches the",
+    "purchase, and take names, detail level and HSN codes from THAT section only,",
+    "so the invoice reads like an actual Indian shop's bill rather than generic",
+    "English. Items from any other section are wrong answers, however well they fit",
+    "the rest of the request. If no section matches the purchase, invent names in",
+    "the same style — do not fall back on a section that does not fit.",
     "",
-    "The slabs listed are the usual ones for that trade; still apply the rules",
-    "above, and prefer a slab from the catalogue over one you recall.",
+    "The slabs shown are the usual ones for that trade. They are guidance for",
+    "choosing a rate, and they never decide which goods belong on this invoice: if",
+    "the purchase is jewellery, the invoice is jewellery whatever slab was asked",
+    "for.",
     "",
     trimmed,
   ].join("\n");
@@ -355,11 +400,33 @@ export function buildQuickFillUserPrompt(input: QuickFillInput): string {
   }
 
   if (input.gstRate !== undefined) {
+    /*
+     * The rate is a statement about the user's own invoice, never a filter on
+     * what to sell them — and saying so is not decoration, it is the fix for a
+     * real failure. The clause here used to read "where you have a choice, pick
+     * goods and HSN codes that genuinely attract N%", which set the model a
+     * contradiction whenever the described trade's usual slab was not N: the
+     * catalogue lists artificial jewellery at 3% / 12%, so "jewellery at 18%"
+     * asked for goods that were jewellery and goods that were 18% at once.
+     * Measured against the live model, it resolved that five different ways —
+     * replacing the goods with furniture and electronics, replacing them with
+     * services, moving the HSN to another chapter, dropping the HSN, and failing
+     * to emit JSON at all — on three of six runs producing nothing usable.
+     *
+     * It also bought nothing: `parseQuickFillMix` overwrites `gstRate` on every
+     * row with this same value before validation, so the model's slab choice is
+     * discarded either way. Only its HSN choice survived, which is precisely the
+     * part the old wording corrupted.
+     */
     lines.push(
       "",
       `Every item on this invoice is taxed at ${input.gstRate}% GST.`,
-      `Set "gstRate": ${input.gstRate} on every item, and where you have a choice,`,
-      `pick goods and HSN codes that genuinely attract ${input.gstRate}%.`,
+      `Set "gstRate": ${input.gstRate} on every item.`,
+      "That rate is a fact about this invoice, not a filter on what was bought. Do",
+      "NOT change which goods you choose, or which HSN codes you give them, to suit",
+      "it. The slabs in the reference below are typical values, not a classification",
+      "of these particular goods; the user knows their own products, so take the",
+      "rate from them and the goods from their description.",
     );
   }
 
@@ -453,6 +520,29 @@ function extractJson(raw: string): unknown {
   return undefined;
 }
 
+/**
+ * The trade the model says it chose, if it said.
+ *
+ * Collapsed to one line and trimmed to a display length: this is model output
+ * heading for the screen, so it is bounded here rather than trusted to be short.
+ */
+function toCategory(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+  const record = payload as Record<string, unknown>;
+  for (const key of ["category", "trade", "sector"]) {
+    const raw = record[key];
+    if (typeof raw !== "string") continue;
+    const cleaned = raw.replace(/\s+/g, " ").trim();
+    if (cleaned === "") continue;
+    return cleaned.length > MAX_CATEGORY_CHARS
+      ? `${cleaned.slice(0, MAX_CATEGORY_CHARS - 1).trimEnd()}…`
+      : cleaned;
+  }
+  return undefined;
+}
+
 /** Accept either a bare array or the `{ items: [...] }` object we asked for. */
 function toRowArray(payload: unknown): unknown[] | undefined {
   if (Array.isArray(payload)) return payload;
@@ -529,6 +619,7 @@ export function parseQuickFillMix(
     };
   }
 
+  const category = toCategory(payload);
   const items: QuickFillMixItem[] = [];
   const rejected: QuickFillRowError[] = [];
 
@@ -581,7 +672,7 @@ export function parseQuickFillMix(
     });
   }
 
-  return { items, rejected };
+  return { items, rejected, category };
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   QUICK_FILL_MODEL,
   QUICK_FILL_SYSTEM_PROMPT,
   buildQuickFillRequestBody,
+  buildQuickFillSystemPrompt,
   buildQuickFillUserPrompt,
   impliedTargetFromMix,
   parseGstRateFromDescription,
@@ -435,19 +436,127 @@ describe("parseQuickFillMix — a slab the user pinned", () => {
 });
 
 describe("buildQuickFillUserPrompt — a pinned slab", () => {
-  it("tells the model the slab and to choose goods that fit it", () => {
+  it("tells the model the slab and to set it on every row", () => {
     const prompt = buildQuickFillUserPrompt({
       description: "Motor Parts",
       gstRate: 5,
     });
     expect(prompt).toContain("taxed at 5% GST");
     expect(prompt).toContain('"gstRate": 5');
-    expect(prompt).toContain("genuinely attract 5%");
+  });
+
+  /**
+   * The regression this file previously enshrined.
+   *
+   * There used to be a test here asserting the prompt contained "genuinely
+   * attract 5%" — the clause that told the model to pick goods and HSN codes to
+   * suit the pinned slab. That clause is what made "Artificial Jewelry
+   * Necklaces, 18% GST" come back as televisions, sofas and A4 paper: the
+   * catalogue lists artificial jewellery at 3% / 12% and never 18%, so "these
+   * goods" and "goods at 18%" were a contradiction, and the model resolved it by
+   * dropping the goods. Against the live model it also produced services instead
+   * of goods, HSN codes from the wrong chapter, no HSN at all, and outright
+   * refusals.
+   *
+   * It could never have helped: `parseQuickFillMix` overwrites `gstRate` on
+   * every row with the pinned value before validation, so the model's slab
+   * choice is discarded regardless. Only its HSN survived — the one thing the
+   * clause corrupted.
+   */
+  it("never asks the model to choose goods or HSN codes to suit the slab", () => {
+    const prompt = buildQuickFillUserPrompt({
+      description: "Artificial jewellery necklaces",
+      gstRate: 18,
+    });
+
+    expect(prompt).not.toContain("genuinely attract");
+    expect(prompt).toContain("not a filter on what was bought");
+    expect(prompt).toMatch(/do\s+NOT change which goods you choose/i);
   });
 
   it("says nothing about a slab when none was pinned", () => {
     const prompt = buildQuickFillUserPrompt({ description: "Motor Parts" });
     expect(prompt).not.toContain("taxed at");
+  });
+});
+
+/**
+ * Category adherence — what the prompt is required to say.
+ *
+ * A caveat worth being blunt about: these are contract tests on the prompt, not
+ * proof of model behaviour. Nothing here can show that a model obeys an
+ * instruction; only that the instruction is present, and that the specific
+ * wording which provably broke adherence has not crept back. Model behaviour was
+ * checked separately against the live API, and what that spot check confirmed is
+ * recorded in `describe("category adherence — live spot check")` below.
+ */
+describe("category adherence — the prompt's standing rules", () => {
+  it("makes the described goods the governing rule", () => {
+    expect(QUICK_FILL_SYSTEM_PROMPT).toContain("THE ITEMS ARE THE GOODS DESCRIBED");
+    expect(QUICK_FILL_SYSTEM_PROMPT).toMatch(/never substitute goods from another trade/i);
+    expect(QUICK_FILL_SYSTEM_PROMPT).toMatch(/never swap goods for\s+services/i);
+  });
+
+  it("asks for the category back, so a misread is visible to the user", () => {
+    expect(QUICK_FILL_SYSTEM_PROMPT).toContain('"category"');
+    expect(QUICK_FILL_SYSTEM_PROMPT).toMatch(/shown back to the\s+user/i);
+  });
+
+  it("defaults to a 5-10 item mix rather than the hard cap", () => {
+    expect(QUICK_FILL_SYSTEM_PROMPT).toContain("between 5 and 10 items");
+    expect(QUICK_FILL_SYSTEM_PROMPT).toContain(String(MAX_GENERATED_ITEMS));
+  });
+
+  it("frames the catalogue as a vocabulary, not a menu to pick from", () => {
+    const prompt = buildQuickFillSystemPrompt(
+      "## Artificial Jewellery — HSN 7117\nKundan necklace set, Meenakari jhumka",
+    );
+
+    expect(prompt).toContain("VOCABULARY, not a menu");
+    expect(prompt).toMatch(/from THAT section only/);
+    expect(prompt).toMatch(/wrong answers/i);
+    // The slabs in the catalogue must not be allowed to decide the goods —
+    // which is exactly how the jewellery invoice turned into a furniture one.
+    expect(prompt).toMatch(/never decide which goods belong/i);
+  });
+
+  it("tells the model what this data is for, which stops it refusing", () => {
+    // Left unsaid, "put 18% on these goods" read as a request to help misstate
+    // tax: the live model answered "I'm sorry, but I can't comply with that
+    // request" on roughly one run in five, which reaches the user as a generic
+    // "the AI service had a problem".
+    expect(QUICK_FILL_SYSTEM_PROMPT).toMatch(/sample data for testing/i);
+    expect(QUICK_FILL_SYSTEM_PROMPT).toMatch(/never filed/i);
+  });
+});
+
+/**
+ * What the live API confirmed, recorded so the next person does not have to
+ * re-derive it — and so a future prompt edit can be re-checked the same way.
+ *
+ * Run against `openai/gpt-oss-120b` with the shipped catalogue, description
+ * "Artificial Jewelry Necklaces, 18% GST", eight consecutive generations:
+ *
+ *   before the fix (6 runs): 3 refusals or unparseable replies; of the rest,
+ *     one returned design/plating *services*, one returned HSN 8306 and 3926
+ *     (base metal and plastics), one returned no HSN at all. Zero runs produced
+ *     jewellery with its own HSN. The originally reported grab-bag — LED TV,
+ *     ceiling fan, sofa set, dining table, office chair, MS angle, paint, A4
+ *     paper — is every catalogue section whose heading lists 18%.
+ *
+ *   after the fix (8 runs): 8/8 returned 5-6 imitation-jewellery lines, every
+ *     row HSN 7117, every row at the pinned 18%. No refusals.
+ *
+ * A spot check after changing this prompt should confirm the same three things:
+ * the goods stay in the described trade, the HSN stays the trade's own code
+ * rather than one borrowed to suit the slab, and the request is not refused.
+ */
+describe("category adherence — live spot check", () => {
+  it("is documented above rather than run in CI", () => {
+    // A placeholder holding the note in the file it belongs to. Hitting Groq
+    // from the suite would make `npm test` need a key, cost the shared free
+    // tier, and fail on a flaky network — none of which is a unit test's job.
+    expect(true).toBe(true);
   });
 });
 

@@ -536,3 +536,83 @@ describe("POST /api/quick-fill — failure paths", () => {
     expect(error).toMatch(/₹\d/);
   });
 });
+
+/**
+ * Category adherence, from the server's side of the boundary.
+ *
+ * The model's own adherence cannot be tested with a mock — that was measured
+ * against the live API and is recorded in tests/quick-fill.test.ts. What IS
+ * testable here, and worth locking down, is that nothing between the model and
+ * the browser rewrites what came back: a jewellery mix must leave this route as
+ * a jewellery mix, carrying the trade's own HSN codes rather than codes the
+ * pipeline substituted, because the reported bug was a whole invoice of the
+ * wrong goods and the route is the last place that could have caused it.
+ */
+describe("POST /api/quick-fill — category adherence", () => {
+  const JEWELLERY = [
+    { description: "Kundan necklace set", hsn: "7117", quantity: 4, weight: 24000, gstRate: 12 },
+    { description: "Meenakari jhumka pair", hsn: "7117", quantity: 6, weight: 9000, gstRate: 12 },
+    { description: "Temple jewellery choker", hsn: "7117", quantity: 3, weight: 15000, gstRate: 12 },
+    { description: "Pearl mangalsutra", hsn: "7117", quantity: 5, weight: 11000, gstRate: 12 },
+  ];
+
+  it("returns the described trade's goods and codes untouched", async () => {
+    mockGroq(JSON.stringify({ category: "Artificial jewellery", items: JEWELLERY }));
+
+    const response = await POST(
+      request({
+        description: "Artificial Jewelry Necklaces, 18% GST",
+        targetAmount: 99654,
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.items).toHaveLength(JEWELLERY.length);
+
+    // Every row is still the jewellery the model chose, at the jewellery HSN.
+    expect(body.items.map((item: { description: string }) => item.description)).toEqual(
+      JEWELLERY.map((item) => item.description),
+    );
+    for (const item of body.items) {
+      expect(item.hsn).toBe("7117");
+    }
+
+    // And nothing from another trade came along — the shape the bug took.
+    const text = JSON.stringify(body.items).toLowerCase();
+    for (const stray of ["led tv", "ceiling fan", "sofa", "dining table", "a4 paper", "brake", "clutch"]) {
+      expect(text).not.toContain(stray);
+    }
+  });
+
+  it("applies the slab named in the description without disturbing the goods", async () => {
+    // The model answered 12% — the usual slab for imitation jewellery. The user
+    // said 18%, so 18% is what the invoice carries, and the goods are unchanged.
+    mockGroq(JSON.stringify({ category: "Artificial jewellery", items: JEWELLERY }));
+
+    const response = await POST(
+      request({ description: "Artificial Jewelry Necklaces, 18% GST" }),
+    );
+    const body = await response.json();
+
+    expect(body.items.every((item: { gstRate: number }) => item.gstRate === 18)).toBe(true);
+    expect(body.items[0].description).toBe("Kundan necklace set");
+    expect(body.items[0].hsn).toBe("7117");
+  });
+
+  it("sends the model a prompt that does not let the slab pick the goods", async () => {
+    mockGroq(JSON.stringify({ category: "Artificial jewellery", items: JEWELLERY }));
+
+    await POST(request({ description: "Artificial Jewelry Necklaces, 18% GST" }));
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = sent.messages.find((message) => message.role === "user")!.content;
+    const system = sent.messages.find((message) => message.role === "system")!.content;
+
+    expect(user).toContain('"gstRate": 18');
+    expect(user).not.toContain("genuinely attract");
+    expect(system).toContain("THE ITEMS ARE THE GOODS DESCRIBED");
+  });
+});

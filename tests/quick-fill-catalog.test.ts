@@ -161,7 +161,13 @@ describe("buildQuickFillSystemPrompt", () => {
 
     expect(prompt).toContain("Brake Pad Set");
     expect(prompt).toContain("real Indian invoice items");
-    expect(prompt).toContain("rather than generic English");
+    // Matched across the line wrap: the instruction is a wrapped block of text,
+    // so asserting a phrase that happens to straddle a newline makes this test
+    // fail on rewording rather than on meaning.
+    expect(prompt).toMatch(/rather than generic\s+English/);
+    // The point of appending it at all — a vocabulary for the trade in hand,
+    // never a menu to pull unrelated goods from (see quick-fill.test.ts).
+    expect(prompt).toMatch(/VOCABULARY, not a menu/);
     // The base instruction is still all there.
     expect(prompt).toContain("You choose the ITEM MIX");
     expect(prompt).toContain("JSON only");
