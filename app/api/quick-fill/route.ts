@@ -24,6 +24,7 @@
  * and account details, and it is not written for the person reading the screen.
  */
 
+import { readItemCatalog } from "@/lib/quick-fill-catalog";
 import { quickFillLimiter } from "@/lib/quick-fill-limiter";
 import { solveQuickFillRates } from "@/lib/quick-fill-solver";
 import {
@@ -157,6 +158,10 @@ export async function POST(request: Request): Promise<Response> {
           description,
           targetAmount,
           gstRate: named.gstRate,
+          // Real Indian item names and HSN codes to draw on. Absent if the
+          // catalogue could not be read, which costs authenticity and nothing
+          // else.
+          catalog: readItemCatalog(),
         }),
       ),
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),

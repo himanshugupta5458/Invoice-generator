@@ -188,6 +188,19 @@ describe("POST /api/quick-fill — the happy path", () => {
     expect(sent.messages[1].content).toContain("artificial jewellery order");
   });
 
+  it("grounds the request in the Indian item catalogue", async () => {
+    mockGroq(JSON.stringify({ items: MIXED_ITEMS }));
+
+    await POST(request({ description: "motor parts order" }));
+
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    // Real item names and HSN codes reach the model, in the system turn — so a
+    // generated row reads like an Indian shop's bill rather than generic English.
+    expect(sent.messages[0].role).toBe("system");
+    expect(sent.messages[0].content).toContain("Motor parts");
+    expect(sent.messages[0].content).toContain("8708");
+  });
+
   it("never puts the API key in the response", async () => {
     mockGroq(JSON.stringify({ items: ITEMS }));
 

@@ -535,6 +535,16 @@ which is what `computeInvoice()` itself falls back to.
   close to expect. A target below the cheapest whole-rupee invoice those items can make
   is refused outright with the figure they *can* reach, because there the gap would be
   the whole amount.
+- **Descriptions are grounded in real Indian item names.** Left to itself a model
+  writes "Wooden Table" and "Decorative Lamp" — plausible English, and nothing like
+  what a shop actually bills. `.claude/skills/indian-invoice-items/SKILL.md` is a
+  catalogue of real item names with their HSN/SAC codes and usual slabs, by trade,
+  and everything below its `## Catalogue` heading is appended to the **system** turn
+  (never the user turn: the description stays the only untrusted text in the
+  request). It **degrades to absent** — a missing or unreadable catalogue costs the
+  rows some authenticity and nothing else, and must never turn into a 500. The rates
+  in it are indicative, not tax advice; a rate the user names in the description
+  overrides them, and the §16 sample-data warning still applies on screen.
 - **A GST rate named in the description pins the whole invoice to it.** "Motor Parts
   5%", "artificial jewellery 12%", "cotton shirts GST 5" — a real bill is usually all
   one slab, so naming one applies it to **every** generated row, overriding whatever
@@ -580,8 +590,18 @@ which is what `computeInvoice()` itself falls back to.
   `lib/csv.ts`.
 - `lib/quick-fill-solver.ts` — **pure**: the rate solver, kept apart from the AI call
   so the arithmetic is testable without the network. Integer paise throughout, and it
-  checks its own answer against `computeInvoice()` rather than a second copy of the
+  measures its own answer against `computeInvoice()` rather than a second copy of the
   same sums.
+- `lib/quick-fill-catalog.ts` — the **only** module in `lib/` that touches the
+  filesystem, which is why it is separate: it reads the item catalogue out of the
+  skill file so `lib/quick-fill.ts` can stay pure and take it as a string. The path
+  is also listed in `next.config.ts` under `outputFileTracingIncludes`, because
+  output tracing cannot see through a runtime `readFileSync` and the file would
+  otherwise be missing from production builds only.
+- `.claude/skills/indian-invoice-items/SKILL.md` — the catalogue itself, one `###`
+  section per trade. Kept as one editable markdown file rather than duplicated into
+  TypeScript so the skill a person edits and the reference the model receives cannot
+  drift apart.
 - `lib/rate-limit.ts` — **pure** token bucket; `now` is a parameter, not a clock read.
 - `lib/quick-fill-limiter.ts` — the shared limiter instance, kept apart so tests can
   reset it.
@@ -590,7 +610,7 @@ which is what `computeInvoice()` itself falls back to.
   Generated rows append through the same path CSV rows do. It passes the invoice's
   current tax branch down from the totals it is already rendering.
 
-### Required tests (`tests/quick-fill.test.ts`, `tests/quick-fill-solver.test.ts`, `tests/rate-limit.test.ts`, `tests/quick-fill-route.test.ts`)
+### Required tests (`tests/quick-fill.test.ts`, `tests/quick-fill-solver.test.ts`, `tests/quick-fill-catalog.test.ts`, `tests/rate-limit.test.ts`, `tests/quick-fill-route.test.ts`)
 
 The solver is tested as pure arithmetic, with no model in sight: given a target and a
 set of items with slabs and weights, **every returned rate is an integer** and the
@@ -607,8 +627,10 @@ markdown fences or prose is still recovered; strings like `"₹1,250.00"` and `"
 coerce; a rate named in the description is parsed in every form somebody writes it,
 applied to every row over the model's own choice, and refused with the valid slabs
 when it is not a slab or when two different ones are named; an off-slab GST rate is
-rejected with a reason while good rows in the same reply still land; a non-JSON reply
-is reported, not
+rejected with a reason while good rows in the same reply still land; the catalogue is
+extracted below its heading, truncated at a line boundary, reaches the model in the
+system turn, and is simply absent when it cannot be read; a non-JSON reply is
+reported, not
 thrown; the token bucket refills at the configured rate and never past its burst; the
 key never appears in a response; empty input and a rate-limited request both cost
 zero upstream calls.

@@ -68,6 +68,12 @@ export interface QuickFillInput {
    * is applied on the way in regardless of what it returns.
    */
   gstRate?: number;
+  /**
+   * The Indian item catalogue, as loaded by `lib/quick-fill-catalog.ts`. Passed
+   * in as a string rather than read here so this module stays free of the
+   * filesystem and testable without one (§16).
+   */
+  catalog?: string;
 }
 
 /**
@@ -177,6 +183,38 @@ export const QUICK_FILL_SYSTEM_PROMPT = [
   "  per-unit rate, a tax amount, or a total. The arithmetic is the app's job.",
   "- No commentary, no markdown fences, no trailing text — the reply must be JSON and nothing else.",
 ].join("\n");
+
+/**
+ * The standing instruction, with the Indian item catalogue appended when one was
+ * loaded (see `lib/quick-fill-catalog.ts`).
+ *
+ * The catalogue belongs in the *system* turn, not the user turn: it is standing
+ * reference material the app supplies, and keeping it on this side of the
+ * boundary means the user's description stays the only untrusted text in the
+ * request. Absent catalogue -> the base instruction unchanged, which is what the
+ * feature ran on before the catalogue existed.
+ */
+export function buildQuickFillSystemPrompt(catalog?: string): string {
+  const trimmed = catalog?.trim();
+  if (!trimmed) return QUICK_FILL_SYSTEM_PROMPT;
+
+  return [
+    QUICK_FILL_SYSTEM_PROMPT,
+    "",
+    "── Reference: real Indian invoice items ─────────────────────────────────",
+    "",
+    "Draw descriptions and HSN codes from the catalogue below wherever the",
+    "purchase matches one of its trades, so the invoice reads like an actual",
+    "Indian shop's bill rather than generic English. Match the level of detail it",
+    "uses — sizes, materials, model names. If the purchase is not covered, invent",
+    "names in the same style.",
+    "",
+    "The slabs listed are the usual ones for that trade; still apply the rules",
+    "above, and prefer a slab from the catalogue over one you recall.",
+    "",
+    trimmed,
+  ].join("\n");
+}
 
 /**
  * A GST slab named in the description, e.g. "Motor Parts 5%".
@@ -314,7 +352,7 @@ export function buildQuickFillRequestBody(input: QuickFillInput): {
     max_tokens: 1500,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: QUICK_FILL_SYSTEM_PROMPT },
+      { role: "system", content: buildQuickFillSystemPrompt(input.catalog) },
       { role: "user", content: buildQuickFillUserPrompt(input) },
     ],
   };
