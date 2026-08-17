@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { InvoiceHistory } from "@/components/invoice/InvoiceHistory";
+import { PageHeader } from "@/components/ui/Card";
 import { StorageErrorBanner } from "@/components/ui/StorageErrorBanner";
 
 export const metadata: Metadata = {
@@ -13,16 +14,13 @@ export const metadata: Metadata = {
  */
 export default function InvoicesPage() {
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-stone-900">
-          Invoice history
-        </h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Every saved invoice, exactly as it was issued. Re-download the PDF or
-          switch an invoice between paid and unpaid.
-        </p>
-      </div>
+    // Wider than Settings: a row here carries an amount, a status control and a
+    // download alongside the invoice number, and squeezing those wraps them.
+    <div className="flex max-w-5xl flex-col gap-6 sm:gap-8">
+      <PageHeader
+        title="Invoice history"
+        description="Every saved invoice, exactly as it was issued. Re-download the PDF or switch an invoice between paid and unpaid."
+      />
 
       <StorageErrorBanner />
       <InvoiceHistory />

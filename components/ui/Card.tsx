@@ -162,7 +162,11 @@ export function EmptyState({
     <div
       className={cn(
         "px-6 py-12 text-center",
-        bordered && "rounded-xl border border-dashed border-ink-300 bg-white",
+        // Capped when it stands alone on a page: a dashed box run out to
+        // 1,400px reads as a large empty area rather than as a prompt. Nested
+        // in a card it takes the card's width, which is already sized.
+        bordered &&
+          "mx-auto max-w-2xl rounded-xl border border-dashed border-ink-300 bg-white",
       )}
     >
       {icon && (
