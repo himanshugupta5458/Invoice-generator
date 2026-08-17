@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 
+import { TextInput } from "@/components/ui/Field";
 import { cn } from "@/components/ui/cn";
 import type { SavedBuyer } from "@/lib/types";
 
@@ -97,7 +98,10 @@ export function BuyerSelect({
         if (blurTimer.current) clearTimeout(blurTimer.current);
       }}
     >
-      <input
+      {/* The shared TextInput, not a hand-styled `<input>`: this control has to
+          be indistinguishable from the fields under it, and the only way to keep
+          it that way is for it to be the same component. */}
+      <TextInput
         id={id}
         role="combobox"
         aria-expanded={open}
@@ -121,12 +125,6 @@ export function BuyerSelect({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        className={cn(
-          "w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900",
-          "placeholder:text-stone-400",
-          "focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-stone-900",
-          "disabled:cursor-not-allowed disabled:bg-stone-100",
-        )}
       />
 
       {open && !disabled && (
@@ -134,7 +132,7 @@ export function BuyerSelect({
           id={listboxId}
           role="listbox"
           aria-label="Saved buyers"
-          className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-stone-200 bg-white py-1 shadow-lg"
+          className="absolute z-20 mt-1.5 max-h-64 w-full overflow-auto rounded-xl border border-ink-200 bg-white py-1.5 shadow-lg shadow-ink-900/5"
         >
           {matches.map((buyer, index) => (
             <li
@@ -146,12 +144,19 @@ export function BuyerSelect({
               onClick={() => choose(index)}
               onMouseEnter={() => setActiveIndex(index)}
               className={cn(
-                "cursor-pointer px-3 py-2 text-sm",
-                index === activeIndex ? "bg-stone-100" : "bg-white",
+                "mx-1.5 cursor-pointer rounded-lg px-2.5 py-2 text-sm",
+                index === activeIndex ? "bg-brand-50" : "bg-white",
               )}
             >
-              <span className="font-medium text-stone-900">{buyer.name}</span>
-              <span className="ml-2 text-xs text-stone-500">
+              <span
+                className={cn(
+                  "font-medium",
+                  index === activeIndex ? "text-brand-800" : "text-ink-900",
+                )}
+              >
+                {buyer.name}
+              </span>
+              <span className="ml-2 text-xs text-ink-500">
                 {buyer.state} ({buyer.stateCode})
                 {buyer.gstin ? ` · ${buyer.gstin}` : ""}
               </span>
@@ -159,7 +164,7 @@ export function BuyerSelect({
           ))}
 
           {query.trim() !== "" && matches.length === 0 && (
-            <li className="px-3 py-2 text-sm text-stone-500">
+            <li className="px-4 py-3 text-sm text-ink-500">
               No saved buyer matches “{query}”.
             </li>
           )}
@@ -173,8 +178,10 @@ export function BuyerSelect({
             onClick={() => choose(matches.length)}
             onMouseEnter={() => setActiveIndex(matches.length)}
             className={cn(
-              "cursor-pointer border-t border-stone-100 px-3 py-2 text-sm font-medium text-stone-700",
-              activeIndex === matches.length ? "bg-stone-100" : "bg-white",
+              "mx-1.5 mt-1 cursor-pointer rounded-lg border-t border-ink-100 px-2.5 py-2 text-sm font-medium",
+              activeIndex === matches.length
+                ? "bg-brand-50 text-brand-800"
+                : "bg-white text-ink-700",
             )}
           >
             + Enter a new buyer

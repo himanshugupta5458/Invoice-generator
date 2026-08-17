@@ -11,9 +11,19 @@ import type { InvoicePdfProps } from "@/components/invoice/InvoicePdf";
 import { EMPTY_ITEM, ItemsTable } from "@/components/invoice/ItemsTable";
 import { InvoicePreview } from "@/components/invoice/InvoicePreview";
 import { ShipToSection } from "@/components/invoice/ShipToSection";
-import { Button } from "@/components/ui/Button";
-import { Field, Select, TextArea, TextInput } from "@/components/ui/Field";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Card, EmptyState, SectionCard } from "@/components/ui/Card";
+import {
+  ADDRESS_GRID,
+  CheckboxField,
+  Field,
+  Select,
+  TextArea,
+  TextInput,
+} from "@/components/ui/Field";
+import { Notice } from "@/components/ui/Notice";
 import { StorageErrorBanner } from "@/components/ui/StorageErrorBanner";
+import { FilePlusIcon } from "@/components/ui/icons";
 import { formatINR } from "@/lib/format";
 import { computeInvoice } from "@/lib/gst";
 import { createId } from "@/lib/repository";
@@ -251,40 +261,44 @@ export function InvoiceForm() {
 
   if (hydrated && profiles.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-stone-300 bg-white px-4 py-10 text-center">
-        <p className="text-sm text-stone-600">
-          No business profiles yet — add one in Settings to start.
-        </p>
-        <Link
-          href="/settings"
-          className="mt-3 inline-block rounded-md bg-stone-900 px-3.5 py-2 text-sm font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
-        >
-          Go to Settings
-        </Link>
-      </div>
+      <EmptyState
+        icon={<FilePlusIcon className="size-6" />}
+        title="No business profiles yet"
+        description="An invoice is issued by a business, so add one in Settings — its name, GSTIN and accent colour — and the builder unlocks."
+        action={
+          <Link href="/settings" className={buttonClasses("primary")}>
+            Go to Settings
+          </Link>
+        }
+      />
     );
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="flex flex-col gap-6">
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      noValidate
+      className="flex flex-col gap-6"
+    >
       <StorageErrorBanner />
 
-      {savedNotice && (
-        <p
-          role="status"
-          className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
-        >
-          {savedNotice}
-        </p>
-      )}
+      {savedNotice && <Notice tone="success">{savedNotice}</Notice>}
 
-      <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
-        <div className="grid gap-4 sm:grid-cols-3">
+      <SectionCard
+        title="Invoice details"
+        description="Who is issuing this invoice, and under what number."
+      >
+        <div className="grid gap-x-4 gap-y-4 sm:grid-cols-6">
           <Field
             label="Business profile"
             required
             error={errors.businessProfileId?.message}
-            hint="Everything else unlocks once a profile is selected."
+            // Only while it is still true. Left up permanently, a hint about
+            // unlocking the form sits under a form that is already unlocked.
+            hint={
+              locked ? "Everything else unlocks once a profile is selected." : undefined
+            }
+            className="sm:col-span-3"
           >
             {(ids) => (
               <Select {...ids} {...register("businessProfileId")}>
@@ -302,6 +316,7 @@ export function InvoiceForm() {
             label="Invoice number"
             required
             error={errors.invoiceNumber?.message}
+            className="sm:col-span-2"
           >
             {(ids) => (
               <TextInput
@@ -313,7 +328,12 @@ export function InvoiceForm() {
             )}
           </Field>
 
-          <Field label="Date" required error={errors.date?.message}>
+          <Field
+            label="Date"
+            required
+            error={errors.date?.message}
+            className="sm:col-span-1"
+          >
             {(ids) => (
               <TextInput
                 {...ids}
@@ -324,19 +344,30 @@ export function InvoiceForm() {
             )}
           </Field>
         </div>
-      </section>
+      </SectionCard>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
-        <div className={locked ? "flex flex-col gap-6 opacity-50" : "flex flex-col gap-6"}>
-          <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
-            <h2 className="text-sm font-semibold text-stone-900">Bill To</h2>
-            <p className="mt-1 text-xs text-stone-500">
-              This buyer&rsquo;s state decides whether the invoice is CGST + SGST
-              or IGST.
-            </p>
-
-            <div className="mt-4 flex flex-col gap-4">
-              <Field label="Saved buyer">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+        {/* Dimmed rather than hidden while locked (§9): the sections stay
+            readable, so a first-time user can see what the form will ask for
+            before committing to a profile. */}
+        <div
+          className={
+            locked
+              ? "flex flex-col gap-6 opacity-60 transition-opacity motion-reduce:transition-none"
+              : "flex flex-col gap-6 transition-opacity motion-reduce:transition-none"
+          }
+        >
+          <SectionCard
+            title="Bill To"
+            description="This buyer’s state decides whether the invoice is CGST + SGST or IGST."
+          >
+            <div className="flex flex-col gap-5">
+              {/* The combobox loads a buyer rather than being a field of one, so
+                  it sits above the rule and the typed-in details below it. */}
+              <Field
+                label="Saved buyer"
+                hint="Autofills the details below. Editing them afterwards changes this invoice only."
+              >
                 {(ids) => (
                   <BuyerSelect
                     id={ids.id}
@@ -348,18 +379,27 @@ export function InvoiceForm() {
                 )}
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={`${ADDRESS_GRID} border-t border-ink-100 pt-5`}>
                 <Field
                   label="Buyer name"
                   required
                   error={errors.buyer?.name?.message}
+                  className="sm:col-span-4"
                 >
                   {(ids) => (
-                    <TextInput {...ids} disabled={locked} {...register("buyer.name")} />
+                    <TextInput
+                      {...ids}
+                      disabled={locked}
+                      {...register("buyer.name")}
+                    />
                   )}
                 </Field>
 
-                <Field label="Phone" error={errors.buyer?.phone?.message}>
+                <Field
+                  label="Phone"
+                  error={errors.buyer?.phone?.message}
+                  className="sm:col-span-2"
+                >
                   {(ids) => (
                     <TextInput
                       {...ids}
@@ -374,7 +414,7 @@ export function InvoiceForm() {
                   label="Address"
                   required
                   error={errors.buyer?.address?.message}
-                  className="sm:col-span-2"
+                  className="sm:col-span-6"
                 >
                   {(ids) => (
                     <TextArea
@@ -386,9 +426,18 @@ export function InvoiceForm() {
                   )}
                 </Field>
 
-                <Field label="State" required error={errors.buyer?.state?.message}>
+                <Field
+                  label="State"
+                  required
+                  error={errors.buyer?.state?.message}
+                  className="sm:col-span-4"
+                >
                   {(ids) => (
-                    <TextInput {...ids} disabled={locked} {...register("buyer.state")} />
+                    <TextInput
+                      {...ids}
+                      disabled={locked}
+                      {...register("buyer.state")}
+                    />
                   )}
                 </Field>
 
@@ -396,6 +445,7 @@ export function InvoiceForm() {
                   label="State code"
                   required
                   error={errors.buyer?.stateCode?.message}
+                  className="sm:col-span-2"
                 >
                   {(ids) => (
                     <TextInput
@@ -412,7 +462,7 @@ export function InvoiceForm() {
                 <Field
                   label="GSTIN"
                   error={errors.buyer?.gstin?.message}
-                  className="sm:col-span-2"
+                  className="sm:col-span-6"
                   hint="Optional — leave blank for an unregistered buyer."
                   warning={
                     buyerStateMismatch
@@ -434,23 +484,20 @@ export function InvoiceForm() {
               </div>
 
               {buyerId === "" ? (
-                <label className="flex items-center gap-2 text-sm text-stone-600">
-                  <input
-                    type="checkbox"
-                    disabled={locked}
-                    className="size-4 rounded border-stone-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
-                    {...register("saveBuyer")}
-                  />
-                  Save this buyer for next time
-                </label>
+                <CheckboxField
+                  label="Save this buyer for next time"
+                  description="Adds them to the saved-buyer list so the details autofill on the next invoice."
+                  disabled={locked}
+                  {...register("saveBuyer")}
+                />
               ) : (
-                <p className="text-xs text-stone-500">
+                <p className="text-xs leading-relaxed text-ink-500">
                   Edits here apply to this invoice only — the saved buyer record
                   is left unchanged.
                 </p>
               )}
             </div>
-          </section>
+          </SectionCard>
 
           <ShipToSection
             register={register}
@@ -474,104 +521,124 @@ export function InvoiceForm() {
             disabled={locked}
           />
 
-          <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6">
-            <div className="grid gap-4">
-              <Field
-                label="Notes"
-                error={errors.notes?.message}
-                hint={
-                  // T&C are seller-only (§4) — there is no field for them here,
-                  // so say where they do come from rather than leave a gap.
-                  <>
-                    Terms &amp; conditions come from the business profile.{" "}
-                    <Link
-                      href="/settings"
-                      className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
-                    >
-                      Edit them in Settings
-                    </Link>
-                    .
-                  </>
-                }
-              >
-                {(ids) => (
-                  <TextArea
-                    {...ids}
-                    rows={2}
-                    disabled={locked}
-                    {...register("notes")}
-                  />
-                )}
-              </Field>
-            </div>
-          </section>
+          <SectionCard
+            // Not "Notes": the field inside is already labelled that, and a card
+            // whose heading repeats its only label says nothing twice.
+            title="Notes & terms"
+            description={
+              // T&C are seller-only (§4) — there is no field for them here,
+              // so say where they do come from rather than leave a gap.
+              <>
+                Shown at the foot of the invoice. Terms &amp; conditions come
+                from the business profile —{" "}
+                <Link
+                  href="/settings"
+                  className="focus-ring rounded font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800"
+                >
+                  edit them in Settings
+                </Link>
+                .
+              </>
+            }
+          >
+            <Field label="Notes" error={errors.notes?.message}>
+              {(ids) => (
+                <TextArea
+                  {...ids}
+                  rows={3}
+                  placeholder="Anything the buyer should see on this invoice."
+                  disabled={locked}
+                  {...register("notes")}
+                />
+              )}
+            </Field>
+          </SectionCard>
         </div>
 
-        {/* Live totals stay visible while items are edited (§9). */}
-        <aside className="lg:sticky lg:top-6">
-          <div className="rounded-lg border border-stone-200 bg-white p-4">
-            <h2 className="text-sm font-semibold text-stone-900">Totals</h2>
-            <p className="mt-0.5 text-xs text-stone-500">
+        {/* Live totals stay visible while items are edited (§9). Sticky at `lg`;
+            below it the running totals under the items list carry the job. */}
+        <aside className="lg:sticky lg:top-10">
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
+              <h2 className="text-sm font-semibold tracking-tight text-ink-900">
+                Totals
+              </h2>
+              <span className="rounded-full bg-ink-100 px-2.5 py-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-ink-600">
+                {computed.isIntraState ? "CGST + SGST" : "IGST"}
+              </span>
+            </div>
+
+            <p className="px-5 pt-4 text-xs leading-relaxed text-ink-500">
               {computed.isIntraState
-                ? "Intra-state supply — CGST + SGST"
-                : "Inter-state supply — IGST"}
+                ? "Intra-state supply — the tax splits in half between centre and state."
+                : "Inter-state supply — a single integrated tax."}
             </p>
 
-            <dl className="mt-3 text-sm">
-              <div className="flex justify-between py-1">
-                <dt className="text-stone-600">Taxable value</dt>
-                <dd className="tabular-nums">{formatINR(computed.subTotal)}</dd>
+            <dl className="px-5 py-4 text-sm">
+              <div className="flex items-baseline justify-between gap-3 py-1.5">
+                <dt className="text-ink-500">Taxable value</dt>
+                <dd className="font-medium tabular-nums text-ink-900">
+                  {formatINR(computed.subTotal)}
+                </dd>
               </div>
 
               {computed.isIntraState ? (
                 <>
-                  <div className="flex justify-between py-1">
-                    <dt className="text-stone-600">CGST</dt>
-                    <dd className="tabular-nums">
+                  <div className="flex items-baseline justify-between gap-3 py-1.5">
+                    <dt className="text-ink-500">CGST</dt>
+                    <dd className="font-medium tabular-nums text-ink-900">
                       {formatINR(computed.totalCgst)}
                     </dd>
                   </div>
-                  <div className="flex justify-between py-1">
-                    <dt className="text-stone-600">SGST</dt>
-                    <dd className="tabular-nums">
+                  <div className="flex items-baseline justify-between gap-3 py-1.5">
+                    <dt className="text-ink-500">SGST</dt>
+                    <dd className="font-medium tabular-nums text-ink-900">
                       {formatINR(computed.totalSgst)}
                     </dd>
                   </div>
                 </>
               ) : (
-                <div className="flex justify-between py-1">
-                  <dt className="text-stone-600">IGST</dt>
-                  <dd className="tabular-nums">
+                <div className="flex items-baseline justify-between gap-3 py-1.5">
+                  <dt className="text-ink-500">IGST</dt>
+                  <dd className="font-medium tabular-nums text-ink-900">
                     {formatINR(computed.totalIgst)}
                   </dd>
                 </div>
               )}
 
-              <div className="flex justify-between border-t border-stone-200 py-1">
-                <dt className="text-stone-600">Round off</dt>
-                <dd className="tabular-nums">
+              <div className="mt-1.5 flex items-baseline justify-between gap-3 border-t border-ink-100 pt-2.5">
+                <dt className="text-ink-500">Round off</dt>
+                <dd className="font-medium tabular-nums text-ink-900">
                   {computed.roundOff >= 0 ? "+" : "−"}
                   {formatINR(Math.abs(computed.roundOff))}
                 </dd>
               </div>
-
-              <div className="mt-1 flex justify-between border-t border-stone-300 pt-2 text-base font-semibold">
-                <dt>Grand total</dt>
-                <dd className="tabular-nums">
-                  ₹{formatINR(computed.grandTotal)}
-                </dd>
-              </div>
             </dl>
 
-            <div className="mt-4 flex flex-col gap-2">
+            {/* The one figure the whole panel exists for, so it gets the band.
+                Brand-tinted because this is app chrome — the accent band on the
+                invoice document itself is the business profile's colour, and the
+                two are deliberately different systems. */}
+            <div className="flex items-baseline justify-between gap-3 border-y border-brand-100 bg-brand-50 px-5 py-3.5">
+              <span className="text-sm font-medium text-brand-900">
+                Grand total
+              </span>
+              <span className="text-lg font-semibold tabular-nums text-brand-950">
+                ₹{formatINR(computed.grandTotal)}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2 px-5 py-4">
               <Button
                 type="submit"
                 variant="primary"
+                className="w-full"
                 disabled={locked || disabled}
               >
                 Save invoice
               </Button>
               <Button
+                className="w-full"
                 disabled={locked}
                 onClick={() => setShowPreview((current) => !current)}
                 aria-expanded={showPreview}
@@ -580,10 +647,20 @@ export function InvoiceForm() {
               </Button>
               {/* Downloads what is on screen — saving first is not required. */}
               {pdfProps && (
-                <DownloadPdfButton invoice={pdfProps} disabled={disabled} />
+                <DownloadPdfButton
+                  invoice={pdfProps}
+                  className="w-full"
+                  disabled={disabled}
+                />
+              )}
+
+              {locked && (
+                <p className="mt-1 text-xs leading-relaxed text-ink-500">
+                  Select a business profile above to start.
+                </p>
               )}
             </div>
-          </div>
+          </Card>
         </aside>
       </div>
 

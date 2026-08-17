@@ -66,7 +66,7 @@ export function DownloadPdfButton({
         {busy ? "Preparing PDF…" : (children ?? "Download PDF")}
       </Button>
       {error && (
-        <p role="alert" className="text-xs text-red-700">
+        <p role="alert" className="text-xs leading-relaxed text-red-600">
           {error}
         </p>
       )}

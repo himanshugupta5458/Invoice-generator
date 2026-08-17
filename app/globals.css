@@ -1,16 +1,128 @@
 @import "tailwindcss";
 
 /*
- * Neutral, print-like chrome (§9). The only colour that varies is a business
- * profile's accent, applied inline on the invoice preview and PDF — never to
- * the app's own layout, so different business colours cannot fight it.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * TWO COLOUR SYSTEMS LIVE IN THIS APP. THEY MUST NOT MERGE.
+ *
+ * 1. App chrome — sidebar, buttons, links, focus rings, active states, form
+ *    controls. One brand colour for the whole product, defined below and
+ *    changed only here. Reach for it through the `brand-*` / `ink-*` Tailwind
+ *    utilities these tokens generate; never hard-code a hex in a component.
+ *
+ * 2. The invoice document — `InvoicePreview` and `InvoicePdf` theme themselves
+ *    from the selected business profile's own `accentColor` (§4, §8). That is a
+ *    product feature, not styling: each business's invoices go out in that
+ *    business's colour, and a saved invoice keeps the accent it was issued with.
+ *    Those two components take their accent through inline styles fed by
+ *    lib/color.ts (including `readableTextOn`, which keeps text on the accent
+ *    band legible) and must never be repainted with the tokens below.
+ *
+ * The separation is what lets the app have an identity of its own without
+ * overwriting the customer's. §9's "chrome stays neutral so different business
+ * colours don't fight the app's layout" is still honoured — the chrome is now
+ * one *fixed* colour rather than a greyscale one, so it is still a constant that
+ * no profile's accent can collide with.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
+@theme {
+  /*
+   * Brand — a blue-violet at hue ~246. Cool, precise, and deliberately not the
+   * warm brown of DEFAULT_ACCENT, so app chrome never reads as "the invoice's
+   * colour". `brand-600` is the primary: 6.5:1 against white, so white text on
+   * a solid brand button clears AA, and it doubles as the focus-ring colour
+   * (6.5:1 is well past the 3:1 non-text minimum).
+   */
+  --color-brand-50: #f3f3ff;
+  --color-brand-100: #e8e7fe;
+  --color-brand-200: #d3d1fd;
+  --color-brand-300: #b3adfa;
+  --color-brand-400: #8d81f5;
+  --color-brand-500: #6c56ec;
+  --color-brand-600: #5546d6;
+  --color-brand-700: #4436b8;
+  --color-brand-800: #392f95;
+  --color-brand-900: #322c76;
+  --color-brand-950: #1e1a45;
+
+  /*
+   * Ink — the neutral scale, cool enough to sit with the brand without turning
+   * grey text blue. Body copy is `ink-900`; `ink-600` (7.3:1) and `ink-500`
+   * (4.7:1) both clear AA on white for secondary text, so muted copy never has
+   * to drop below the line. `ink-400` is for placeholders and decoration only.
+   */
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eef0f4;
+  --color-ink-200: #e2e5ec;
+  --color-ink-300: #ccd1dc;
+  --color-ink-400: #97a0b3;
+  --color-ink-500: #6b7488;
+  --color-ink-600: #4e5668;
+  --color-ink-700: #3a4150;
+  --color-ink-800: #262c38;
+  --color-ink-900: #171b24;
+  --color-ink-950: #0d1017;
+}
+
 @theme inline {
   --font-sans: var(--font-geist-sans);
 }
 
+/*
+ * One focus treatment for the whole app (§9), so "is focus still visible?" is a
+ * question with a single answer and a single place to change it. A real
+ * `outline` rather than a box-shadow ring: outlines survive forced-colours mode,
+ * where a shadow is dropped entirely.
+ */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * The same ring for form controls, drawn on the border instead of outside it.
+ * An offset ring around an input in a tight grid collides with its neighbour.
+ */
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 0;
+  }
+}
+
+/*
+ * A `<select>` drawn to match the text inputs.
+ *
+ * `appearance: none` plus our own chevron, because the native control is the one
+ * place a browser refuses to match a design system: Chrome, Safari and Firefox
+ * each draw a different arrow at a different width, so a row of a select beside
+ * an input never lines up and the select's usable text width is unknowable.
+ * With the arrow authored here it is exactly `padding-right`, which is what lets
+ * the items grid in ItemsTable budget its GST column honestly.
+ *
+ * The stroke is `--color-ink-500`, inlined because a data URL cannot read a
+ * custom property. If the ink scale moves, move it here too.
+ */
+@utility select-chevron {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b7488' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6.25 8 10.25l4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem 1rem;
+
+  &:disabled {
+    opacity: 0.6;
+  }
+}
+
 body {
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background-color: var(--color-brand-100);
+  color: var(--color-brand-950);
 }
 
 /* Respect a reduced-motion preference across the whole app (§9). */

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 
-import { SiteNav } from "@/components/ui/SiteNav";
+import { AppSidebar } from "@/components/ui/AppSidebar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,11 +22,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="flex min-h-full flex-col bg-stone-50 text-stone-900">
-        <SiteNav />
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
-          {children}
-        </main>
+      <body className="min-h-full bg-ink-50 text-ink-900">
+        <AppSidebar />
+
+        {/* `lg:pl-64` clears the fixed rail. Below `lg` the rail is gone and the
+            content runs full width under the sticky bar. */}
+        <div className="lg:pl-64">
+          <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
+            {children}
+          </main>
+        </div>
       </body>
     </html>
   );

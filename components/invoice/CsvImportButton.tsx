@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { Notice } from "@/components/ui/Notice";
 import { parseInvoiceItemsCsv, type CsvRowError } from "@/lib/csv";
 import type { InvoiceItemFormValues } from "@/lib/validation";
 
@@ -153,13 +154,12 @@ export function CsvImportFeedback({ state }: { state: CsvImportState }) {
   const hidden = summary.errors.length - listed.length;
 
   return (
-    <div
+    <Notice
+      tone={failed ? "warning" : "success"}
       role={failed ? "alert" : "status"}
-      className={
-        failed
-          ? "flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-          : "flex items-start justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800"
-      }
+      size="sm"
+      onDismiss={state.dismiss}
+      dismissLabel="Dismiss import result"
     >
       <div className="min-w-0">
         {summary.fileError ? (
@@ -192,26 +192,7 @@ export function CsvImportFeedback({ state }: { state: CsvImportState }) {
           </>
         )}
       </div>
-
-      <button
-        type="button"
-        onClick={state.dismiss}
-        aria-label="Dismiss import result"
-        className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current motion-reduce:transition-none"
-      >
-        <svg
-          viewBox="0 0 16 16"
-          aria-hidden="true"
-          className="size-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-        >
-          <path d="M4 4l8 8M12 4l-8 8" />
-        </svg>
-      </button>
-    </div>
+    </Notice>
   );
 }
 

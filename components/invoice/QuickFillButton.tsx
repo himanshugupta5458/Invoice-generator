@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { TextArea, TextInput } from "@/components/ui/Field";
+import { Notice } from "@/components/ui/Notice";
 import { formatINR } from "@/lib/format";
 import {
   MAX_DESCRIPTION_CHARS,
@@ -248,14 +249,17 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
   return (
     <div
       id={id}
-      className="rounded-md border border-stone-200 bg-stone-50 p-3 sm:p-4"
+      className="rounded-xl border border-ink-200 bg-ink-50 p-4 sm:p-5"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-stone-900">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+            <span className="flex size-6 items-center justify-center rounded-lg bg-brand-100 text-brand-700">
+              <SparkIcon />
+            </span>
             Quick Fill (AI)
           </h3>
-          <p className="mt-0.5 text-xs text-stone-500">
+          <p className="mt-1 text-xs leading-relaxed text-ink-500">
             Describe a purchase and the AI will draft sample rows for you. Rates
             come out as whole rupees, landing as near your target as those allow.
           </p>
@@ -264,7 +268,7 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
           type="button"
           onClick={state.close}
           aria-label="Close Quick Fill"
-          className="shrink-0 rounded p-0.5 text-stone-500 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 motion-reduce:transition-none"
+          className="focus-ring shrink-0 rounded-lg p-1 text-ink-500 transition-colors hover:bg-ink-200 hover:text-ink-900 motion-reduce:transition-none"
         >
           <svg
             viewBox="0 0 16 16"
@@ -280,11 +284,11 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
         </button>
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem]">
+      <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor={descriptionId}
-            className="text-xs font-medium text-stone-700"
+            className="text-[0.8125rem] font-medium leading-5 text-ink-700"
           >
             What was bought
           </label>
@@ -297,7 +301,7 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
             value={state.description}
             onChange={(event) => state.setDescription(event.target.value)}
           />
-          <p className="text-xs text-stone-500">
+          <p className="text-xs leading-relaxed text-ink-500">
             Name a GST rate — &ldquo;Motor Parts 5%&rdquo; — to put every row on
             that slab.{" "}
             {remaining < 0
@@ -309,10 +313,10 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor={targetId}
-            className="text-xs font-medium text-stone-700"
+            className="text-[0.8125rem] font-medium leading-5 text-ink-700"
           >
             Target total{" "}
-            <span className="font-normal text-stone-400">(optional)</span>
+            <span className="font-normal text-ink-400">(optional)</span>
           </label>
           <TextInput
             id={targetId}
@@ -333,13 +337,13 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
               if (!locked) void state.generate();
             }}
           />
-          <p className="text-xs text-stone-500">
+          <p className="text-xs leading-relaxed text-ink-500">
             Including GST. Whole rupees. Approached, not guaranteed.
           </p>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button
           variant="primary"
           disabled={locked}
@@ -348,7 +352,7 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
         >
           {state.busy ? "Generating…" : "Generate items"}
         </Button>
-        <p className="text-xs text-stone-500">
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-500">
           Sample rows for testing — not verified purchase data. The prices are
           worked backwards from the target, not looked up. Check every figure
           before issuing the invoice.
@@ -356,12 +360,9 @@ export function QuickFillPanel({ state, id, disabled }: QuickFillPanelProps) {
       </div>
 
       {state.error && (
-        <p
-          role="alert"
-          className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-        >
+        <Notice tone="warning" role="alert" size="sm" className="mt-3">
           {state.error}
-        </p>
+        </Notice>
       )}
 
       {state.summary && <QuickFillSummaryNote summary={state.summary} />}
@@ -375,13 +376,10 @@ function QuickFillSummaryNote({ summary }: { summary: QuickFillSummary }) {
   const hidden = summary.rejected.length - listed.length;
 
   return (
-    <div
-      role="status"
-      className={
-        summary.rejected.length > 0
-          ? "mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-          : "mt-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800"
-      }
+    <Notice
+      tone={summary.rejected.length > 0 ? "warning" : "success"}
+      size="sm"
+      className="mt-3"
     >
       <p>
         Added {summary.added} {summary.added === 1 ? "item" : "items"} totalling{" "}
@@ -423,7 +421,7 @@ function QuickFillSummaryNote({ summary }: { summary: QuickFillSummary }) {
           {hidden > 0 && <p className="mt-1">…and {hidden} more row(s).</p>}
         </>
       )}
-    </div>
+    </Notice>
   );
 }
 
