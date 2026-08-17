@@ -469,7 +469,7 @@ export function InvoiceForm() {
           <ItemsTable
             control={control}
             register={register}
-            lines={computed.lines}
+            computed={computed}
             errors={errors.items}
             disabled={locked}
           />
