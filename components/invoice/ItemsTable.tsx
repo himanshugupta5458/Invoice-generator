@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { FieldErrors, UseFormRegister } from "react-hook-form";
 import { useFieldArray, type Control } from "react-hook-form";
 
@@ -34,10 +34,19 @@ export const EMPTY_ITEM = {
  * never drift out of register. Sized to fit the 38.5rem the builder's left
  * column has at `lg` (the widest the app ever gets, since the page is capped at
  * max-w-5xl and the totals panel takes 18rem): the fixed columns and gaps come
- * to 30.25rem, leaving the flexible description column ~8rem at worst.
+ * to 30.75rem, leaving the flexible description column ~7.75rem at worst.
+ *
+ * The GST column carries a `<select>`, which spends 2.75rem of whatever it is
+ * given on chrome — `px-3` plus the `pr-8` the shared Select reserves for the
+ * native dropdown arrow. At the 4.5rem it had, the text box came to 26px and a
+ * two-digit slab ("12%", "18%", "28%") needs ~27px, so the second digit was
+ * clipped off. 5.5rem leaves ~15px of headroom; the half rem is taken back from
+ * Amount, which holds a wrapping span rather than a fixed-width control.
+ * Padding cannot be trimmed per-instance here: `cn` is a plain join, so a
+ * narrower `pr-*` passed via className still loses to `pr-8` on CSS order.
  */
 const ROW_GRID =
-  "md:grid-cols-[minmax(0,1fr)_5rem_4rem_5.5rem_4.5rem_7rem_2rem] md:gap-1.5";
+  "md:grid-cols-[minmax(0,1fr)_5rem_4rem_5.5rem_5.5rem_6.5rem_2rem] md:gap-1.5";
 
 /**
  * Right-aligned figures, and no native spinner: at these column widths the
@@ -84,6 +93,18 @@ export function ItemsTable({
     index: number;
     item: InvoiceItemFormValues;
   } | null>(null);
+
+  /**
+   * Prefix for the label/input pairs inside each row.
+   *
+   * Deliberately *not* `field.id`: useFieldArray seeds its ids from
+   * `crypto.randomUUID()` in a ref initialiser, which runs once on the server
+   * and again in the browser, so the two runs never agree and any DOM attribute
+   * built from one is a guaranteed hydration mismatch. `useId` is the opposite
+   * — React serialises it with the SSR payload so the client reuses the server's
+   * value. Rows are then addressed by position, which hydration also agrees on.
+   */
+  const rowIdPrefix = useId();
 
   const lines = computed.lines;
 
@@ -170,7 +191,9 @@ export function ItemsTable({
         <span>HSN/SAC</span>
         <span className="text-right">Qty</span>
         <span className="text-right">Rate</span>
-        <span className="text-right">GST</span>
+        {/* Left, unlike Qty/Rate: a select renders its value left-aligned, and
+            a right-aligned heading over it now sits a visible gap away. */}
+        <span>GST</span>
         <span className="text-right">Amount</span>
         <span />
       </div>
@@ -180,6 +203,7 @@ export function ItemsTable({
           const line = lines[index];
           const rowError = rowErrors?.[index];
           const only = fields.length === 1;
+          const rowId = `${rowIdPrefix}item-${index}`;
 
           return (
             <li
@@ -208,11 +232,11 @@ export function ItemsTable({
               </div>
 
               <div className="col-span-2 min-w-0 md:col-span-1">
-                <CellLabel htmlFor={`${field.id}-description`}>
+                <CellLabel htmlFor={`${rowId}-description`}>
                   Description
                 </CellLabel>
                 <TextInput
-                  id={`${field.id}-description`}
+                  id={`${rowId}-description`}
                   aria-label={`Item ${index + 1} description`}
                   aria-invalid={Boolean(rowError?.description)}
                   disabled={disabled}
@@ -222,9 +246,9 @@ export function ItemsTable({
               </div>
 
               <div className="min-w-0">
-                <CellLabel htmlFor={`${field.id}-hsn`}>HSN/SAC</CellLabel>
+                <CellLabel htmlFor={`${rowId}-hsn`}>HSN/SAC</CellLabel>
                 <TextInput
-                  id={`${field.id}-hsn`}
+                  id={`${rowId}-hsn`}
                   aria-label={`Item ${index + 1} HSN or SAC code`}
                   placeholder="—"
                   disabled={disabled}
@@ -234,9 +258,9 @@ export function ItemsTable({
               </div>
 
               <div className="min-w-0">
-                <CellLabel htmlFor={`${field.id}-quantity`}>Qty</CellLabel>
+                <CellLabel htmlFor={`${rowId}-quantity`}>Qty</CellLabel>
                 <TextInput
-                  id={`${field.id}-quantity`}
+                  id={`${rowId}-quantity`}
                   type="number"
                   min={0}
                   step="any"
@@ -252,9 +276,9 @@ export function ItemsTable({
               </div>
 
               <div className="min-w-0">
-                <CellLabel htmlFor={`${field.id}-rate`}>Rate</CellLabel>
+                <CellLabel htmlFor={`${rowId}-rate`}>Rate</CellLabel>
                 <TextInput
-                  id={`${field.id}-rate`}
+                  id={`${rowId}-rate`}
                   type="number"
                   min={0}
                   step="0.01"
@@ -268,9 +292,9 @@ export function ItemsTable({
               </div>
 
               <div className="min-w-0">
-                <CellLabel htmlFor={`${field.id}-gstRate`}>GST</CellLabel>
+                <CellLabel htmlFor={`${rowId}-gstRate`}>GST</CellLabel>
                 <Select
-                  id={`${field.id}-gstRate`}
+                  id={`${rowId}-gstRate`}
                   aria-label={`Item ${index + 1} GST rate`}
                   disabled={disabled}
                   className="tabular-nums"
