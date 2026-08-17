@@ -1,7 +1,7 @@
 "use client";
 
 import { readableTextOn, resolveAccent } from "@/lib/color";
-import { amountInWords, formatINR } from "@/lib/format";
+import { amountInWords, formatDisplayDate, formatINR } from "@/lib/format";
 import type { ComputedInvoice } from "@/lib/gst";
 import type {
   BusinessProfile,
@@ -23,13 +23,6 @@ export interface InvoicePreviewProps {
   accentColor: string;
   status?: InvoiceStatus;
   notes?: string;
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return "—";
-  // Rendered from the ISO parts directly so the server and client agree.
-  const [year, month, day] = iso.split("-");
-  return year && month && day ? `${day}/${month}/${year}` : iso;
 }
 
 /**
@@ -161,7 +154,7 @@ export function InvoicePreview({
           </div>
           <div className="mt-1 flex justify-between gap-3">
             <dt className="text-stone-500">Date</dt>
-            <dd className="font-medium">{formatDate(date)}</dd>
+            <dd className="font-medium">{formatDisplayDate(date)}</dd>
           </div>
           <div className="mt-1 flex justify-between gap-3">
             <dt className="text-stone-500">Place of supply</dt>

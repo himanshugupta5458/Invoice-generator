@@ -130,6 +130,22 @@ function belowHundred(n: number): string {
 }
 
 /**
+ * ISO date (`YYYY-MM-DD`) to the DD/MM/YYYY an Indian invoice is read in.
+ *
+ * Split from the string rather than parsed into a Date on purpose: `new Date()`
+ * would apply the runtime's time zone, so an invoice dated the 1st could render
+ * as the 31st on a server in a different zone. Anything that is not an ISO date
+ * is passed through untouched, and a blank date renders as an em dash.
+ */
+export function formatDisplayDate(iso: string): string {
+  if (!iso) return "—";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!match) return iso;
+  const [, year, month, day] = match;
+  return `${day}/${month}/${year}`;
+}
+
+/**
  * GSTIN format check: 15 chars — 2-digit state code, 5 letters (PAN), 4 digits,
  * 1 letter, 1 entity char, literal "Z", 1 checksum char. Surfaced as a Zod
  * refinement in lib/validation.ts.

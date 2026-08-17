@@ -32,7 +32,7 @@ import {
 
 import type { InvoicePreviewProps } from "@/components/invoice/InvoicePreview";
 import { readableTextOn, resolveAccent } from "@/lib/color";
-import { amountInWords, formatINR } from "@/lib/format";
+import { amountInWords, formatDisplayDate, formatINR } from "@/lib/format";
 import type { ComputedLine } from "@/lib/gst";
 import type { Buyer, ShipTo } from "@/lib/types";
 
@@ -361,13 +361,6 @@ export function columnsFor(isIntraState: boolean): Column[] {
   ];
 }
 
-/** Rendered from the ISO parts directly so it never depends on a timezone. */
-function formatDate(iso: string): string {
-  if (!iso) return "—";
-  const [year, month, day] = iso.split("-");
-  return year && month && day ? `${day}/${month}/${year}` : iso;
-}
-
 function stateLine(state: string, stateCode: string): string {
   if (!state) return "";
   return stateCode ? `${state} (${stateCode})` : state;
@@ -510,7 +503,7 @@ export function InvoicePdf({
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.muted}>Date</Text>
-              <Text style={styles.detailValue}>{formatDate(date)}</Text>
+              <Text style={styles.detailValue}>{formatDisplayDate(date)}</Text>
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.muted}>Place of supply</Text>
