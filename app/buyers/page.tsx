@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { BuyersPanel } from "@/components/settings/BuyersPanel";
+import { PageHeader } from "@/components/ui/Card";
 import { StorageErrorBanner } from "@/components/ui/StorageErrorBanner";
 
 export const metadata: Metadata = {
@@ -14,22 +15,25 @@ export const metadata: Metadata = {
  */
 export default function BuyersPage() {
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-stone-900">
-          Buyers
-        </h1>
-        <p className="mt-1 text-sm text-stone-500">
-          Also available as a tab in{" "}
-          <Link
-            href="/settings"
-            className="underline underline-offset-2 hover:text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900"
-          >
-            Settings
-          </Link>
-          .
-        </p>
-      </div>
+    // Same width as Settings, since it is the same panel seen from a different
+    // door — landing on this one should not feel like a different application.
+    <div className="flex max-w-4xl flex-col gap-6 sm:gap-8">
+      <PageHeader
+        title="Buyers"
+        description={
+          <>
+            The customers you can pick when creating an invoice. Also available
+            as a tab in{" "}
+            <Link
+              href="/settings"
+              className="focus-ring rounded font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800"
+            >
+              Settings
+            </Link>
+            .
+          </>
+        }
+      />
 
       <StorageErrorBanner />
       <BuyersPanel />
